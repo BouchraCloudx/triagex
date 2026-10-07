@@ -1,0 +1,90 @@
+---
+- name: Installer Java 21 (requis par Jenkins)
+  ansible.builtin.apt:
+    name:
+      - fontconfig
+      - openjdk-21-jre-headless
+    state: present
+    update_cache: true
+
+- name: Ajouter le dépôt officiel Jenkins LTS
+  ansible.builtin.deb822_repository:
+    name: jenkins
+    types: deb
+    uris: https://pkg.jenkins.io/debian-stable
+    suites: binary/
+    signed_by: https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
+    state: present
+
+- name: Installer Jenkins
+  ansible.builtin.apt:
+    name: jenkins
+    state: present
+    update_cache: true
+
+- name: Autoriser Jenkins à utiliser Docker
+  ansible.builtin.user:
+    name: jenkins
+    groups: docker
+    append: true
+  notify: Restart jenkins
+
+- name: Créer le dossier de configuration systemd
+  ansible.builtin.file:
+    path: /etc/systemd/system/jenkins.service.d
+    state: directory
+    mode: "0755"
+
+- name: Configurer les options de démarrage de Jenkins
+  ansible.builtin.template:
+    src: override.conf.j2
+    dest: /etc/systemd/system/jenkins.service.d/override.conf
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart jenkins
+
+- name: Télécharger l'outil d'installation des plugins
+  ansible.builtin.get_url:
+    url: "https://github.com/jenkinsci/plugin-installation-manager-tool/releases/download/{{ jenkins_plugin_manager_version }}/jenkins-plugin-manager-{{ jenkins_plugin_manager_version }}.jar"
+    dest: /opt/jenkins-plugin-manager.jar
+    mode: "0644"
+
+- name: Déployer la liste des plugins
+  ansible.builtin.copy:
+    src: plugins.txt
+    dest: "{{ jenkins_home }}/plugins.txt"
+    owner: jenkins
+    group: jenkins
+    mode: "0644"
+  notify:
+    - Install jenkins plugins
+    - Fix plugins ownership
+    - Restart jenkins
+
+- name: Déployer la configuration JCasC
+  ansible.builtin.template:
+    src: casc.yaml.j2
+    dest: "{{ jenkins_home }}/casc.yaml"
+    owner: jenkins
+    group: jenkins
+    mode: "0600"
+  notify: Restart jenkins
+
+- name: Démarrer Jenkins au boot
+  ansible.builtin.service:
+    name: jenkins
+    state: started
+    enabled: true
+
+- name: Appliquer les changements en attente
+  ansible.builtin.meta: flush_handlers
+
+- name: Attendre que Jenkins soit disponible
+  ansible.builtin.uri:
+    url: "http://localhost:8080/login"
+    status_code: 200
+  register: jenkins_ready
+  until: jenkins_ready.status == 200
+  retries: 30
+  delay: 10

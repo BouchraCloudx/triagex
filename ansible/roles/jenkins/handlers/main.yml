@@ -1,0 +1,23 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Install jenkins plugins
+  ansible.builtin.command: >
+    java -jar /opt/jenkins-plugin-manager.jar
+    --war /usr/share/java/jenkins.war
+    --plugin-file {{ jenkins_home }}/plugins.txt
+    --plugin-download-directory {{ jenkins_home }}/plugins
+
+- name: Fix plugins ownership
+  ansible.builtin.file:
+    path: "{{ jenkins_home }}/plugins"
+    owner: jenkins
+    group: jenkins
+    recurse: true
+
+- name: Restart jenkins
+  ansible.builtin.service:
+    name: jenkins
+    state: restarted

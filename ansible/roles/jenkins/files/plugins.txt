@@ -1,0 +1,13 @@
+configuration-as-code
+workflow-aggregator
+pipeline-stage-view
+git
+github
+credentials-binding
+ssh-agent
+job-dsl
+matrix-auth
+timestamper
+ws-cleanup
+htmlpublisher
+ansicolor

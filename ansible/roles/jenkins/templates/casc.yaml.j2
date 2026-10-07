@@ -1,0 +1,19 @@
+# Géré par Ansible - toute modification manuelle sera écrasée
+jenkins:
+  systemMessage: "TriageX CI/CD - configuré par Ansible et JCasC"
+  numExecutors: 2
+  mode: NORMAL
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "{{ jenkins_admin_user }}"
+          password: "{{ jenkins_admin_password }}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+  remotingSecurity:
+    enabled: true
+unclassified:
+  location:
+    url: "{{ jenkins_url }}"

@@ -6,3 +6,9 @@
     - common
     - hardening
     - docker
+
+- name: Serveur CI/CD
+  hosts: ci_servers
+  become: true
+  roles:
+    - jenkins
