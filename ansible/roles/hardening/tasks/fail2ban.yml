@@ -1,0 +1,13 @@
+---
+- name: Configurer fail2ban pour SSH
+  ansible.builtin.copy:
+    src: jail.local
+    dest: /etc/fail2ban/jail.local
+    mode: "0644"
+  notify: Restart fail2ban
+
+- name: Démarrer fail2ban
+  ansible.builtin.service:
+    name: fail2ban
+    state: started
+    enabled: true

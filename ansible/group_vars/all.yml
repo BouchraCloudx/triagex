@@ -1,0 +1,16 @@
+---
+admin_user: devops
+timezone: Africa/Casablanca
+common_packages:
+  - curl
+  - wget
+  - vim
+  - git
+  - htop
+  - unzip
+  - ca-certificates
+  - gnupg
+  - python3-pip
+  - net-tools
+allowed_tcp_ports:
+  - 22

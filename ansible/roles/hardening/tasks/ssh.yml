@@ -1,0 +1,19 @@
+---
+- name: Créer le dossier d'exécution de sshd
+  ansible.builtin.file:
+    path: /run/sshd
+    state: directory
+    mode: "0755"
+
+- name: Déployer la configuration SSH durcie
+  ansible.builtin.copy:
+    src: 00-hardening.conf
+    dest: /etc/ssh/sshd_config.d/00-hardening.conf
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart ssh
+
+- name: Vérifier la syntaxe de la configuration SSH
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false

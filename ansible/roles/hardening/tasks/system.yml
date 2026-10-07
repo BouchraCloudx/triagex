@@ -1,0 +1,38 @@
+---
+- name: Installer les outils de sécurité
+  ansible.builtin.apt:
+    name:
+      - auditd
+      - unattended-upgrades
+      - fail2ban
+      - python3-systemd
+      - ufw
+    state: present
+
+- name: Activer auditd (traçabilité des actions)
+  ansible.builtin.service:
+    name: auditd
+    state: started
+    enabled: true
+
+- name: Activer les mises à jour de sécurité automatiques
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    mode: "0644"
+
+- name: Durcir les paramètres réseau du noyau
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-hardening.conf
+    reload: true
+  loop:
+    - { name: net.ipv4.conf.all.accept_redirects, value: "0" }
+    - { name: net.ipv4.conf.all.send_redirects, value: "0" }
+    - { name: net.ipv4.conf.all.accept_source_route, value: "0" }
+    - { name: net.ipv4.conf.all.log_martians, value: "1" }
+    - { name: net.ipv4.icmp_echo_ignore_broadcasts, value: "1" }
+    - { name: net.ipv4.tcp_syncookies, value: "1" }

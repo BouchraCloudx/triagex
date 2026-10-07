@@ -1,0 +1,12 @@
+---
+- name: Paquets et services système
+  ansible.builtin.import_tasks: system.yml
+
+- name: Durcissement SSH
+  ansible.builtin.import_tasks: ssh.yml
+
+- name: Pare-feu UFW
+  ansible.builtin.import_tasks: firewall.yml
+
+- name: Protection contre la force brute
+  ansible.builtin.import_tasks: fail2ban.yml

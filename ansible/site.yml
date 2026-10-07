@@ -1,0 +1,7 @@
+---
+- name: Socle commun et durcissement de sécurité
+  hosts: all
+  become: true
+  roles:
+    - common
+    - hardening
