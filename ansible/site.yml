@@ -1,7 +1,8 @@
 ---
-- name: Socle commun et durcissement de sécurité
+- name: Socle commun, durcissement et Docker
   hosts: all
   become: true
   roles:
     - common
     - hardening
+    - docker

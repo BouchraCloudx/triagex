@@ -1,0 +1,55 @@
+---
+- name: Supprimer les anciennes versions de Docker
+  ansible.builtin.apt:
+    name:
+      - docker.io
+      - docker-compose
+      - docker-doc
+      - podman-docker
+      - containerd
+      - runc
+    state: absent
+
+- name: Installer la dépendance du module deb822
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+
+- name: Ajouter le dépôt officiel de Docker (clé GPG incluse)
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: deb
+    uris: https://download.docker.com/linux/ubuntu
+    suites: "{{ docker_ubuntu_codename }}"
+    components: stable
+    architectures: amd64
+    signed_by: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+
+- name: Installer Docker et ses plugins
+  ansible.builtin.apt:
+    name: "{{ docker_packages }}"
+    state: present
+    update_cache: true
+
+- name: Appliquer la configuration sécurisée du démon Docker
+  ansible.builtin.copy:
+    src: daemon.json
+    dest: /etc/docker/daemon.json
+    mode: "0644"
+  notify: Restart docker
+
+- name: Démarrer Docker au boot
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Ajouter l'utilisateur d'administration au groupe docker
+  ansible.builtin.user:
+    name: "{{ admin_user }}"
+    groups: docker
+    append: true
+
+- name: Réinitialiser la connexion pour appliquer le nouveau groupe
+  ansible.builtin.meta: reset_connection

@@ -14,3 +14,10 @@ common_packages:
   - net-tools
 allowed_tcp_ports:
   - 22
+docker_ubuntu_codename: "{{ ansible_facts['distribution_release'] }}"
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
