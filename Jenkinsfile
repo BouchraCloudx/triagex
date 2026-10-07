@@ -92,6 +92,7 @@ pipeline {
         stage('Résumé et quality gate') {
             steps {
                 sh '''
+                    set +x
                     count() { jq "$2" "reports/$1" 2>/dev/null || echo 0; }
 
                     SECRETS=$(count gitleaks.json 'length')
