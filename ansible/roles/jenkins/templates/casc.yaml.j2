@@ -14,6 +14,37 @@ jenkins:
       allowAnonymousRead: false
   remotingSecurity:
     enabled: true
+security:
+  globalJobDslSecurityConfiguration:
+    useScriptSecurity: false
 unclassified:
   location:
     url: "{{ jenkins_url }}"
+jobs:
+  - script: |
+      pipelineJob('triagex-pipeline') {
+        description('Pipeline DevSecOps TriageX - géré par Ansible')
+        properties {
+          pipelineTriggers {
+            triggers {
+              pollSCM {
+                scmpoll_spec('H/5 * * * *')
+              }
+            }
+          }
+        }
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('{{ triagex_repo_url }}')
+                }
+                branch('*/main')
+              }
+            }
+            scriptPath('Jenkinsfile')
+            lightweight(true)
+          }
+        }
+      }

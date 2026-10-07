@@ -7,3 +7,11 @@ jenkins_admin_user: admin
 jenkins_admin_password: "{{ vault_jenkins_admin_password }}"
 jenkins_java_opts: "-Djava.awt.headless=true -Xmx1g -Djenkins.install.runSetupWizard=false"
 jenkins_plugin_manager_version: "2.15.0"
+
+triagex_repo_url: "https://github.com/BouchraCloudx/triagex.git"
+
+security_scanner_images:
+  - zricethezav/gitleaks:latest
+  - semgrep/semgrep:latest
+  - aquasec/trivy:latest
+  - bridgecrew/checkov:latest

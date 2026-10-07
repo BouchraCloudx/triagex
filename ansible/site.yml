@@ -12,3 +12,4 @@
   become: true
   roles:
     - jenkins
+    - security-tools

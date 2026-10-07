@@ -1,0 +1,24 @@
+---
+- name: Installer jq et le SDK Docker pour Python
+  ansible.builtin.apt:
+    name:
+      - jq
+      - python3-docker
+    state: present
+
+- name: Créer les dossiers de cache pour Jenkins
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: jenkins
+    group: jenkins
+    mode: "0755"
+  loop:
+    - "{{ jenkins_home }}/.cache"
+    - "{{ jenkins_home }}/.cache/trivy"
+
+- name: Pré-télécharger les images des scanners de sécurité
+  community.docker.docker_image:
+    name: "{{ item }}"
+    source: pull
+  loop: "{{ security_scanner_images }}"
