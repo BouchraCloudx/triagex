@@ -120,6 +120,19 @@ def etag():
         return hashlib.md5(fh.read()).hexdigest()
 
 
+@app.route("/thumbs")
+def thumbnail_key():
+    name = request.args.get("name", "")
+    return hashlib.sha1(name.encode()).hexdigest()
+
+
+@app.route("/stats/<kind>")
+def stats(kind):
+    table = "orders" if kind == "orders" else "users"
+    query = f"SELECT COUNT(*) FROM {table}"
+    return str(db().execute(query).fetchall())
+
+
 @app.route("/fetch")
 def fetch():
     url = request.args.get("url", "")

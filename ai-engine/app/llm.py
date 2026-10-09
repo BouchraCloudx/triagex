@@ -1,4 +1,14 @@
-"""Analyse d'une alerte par le LLM local (Ollama). Le code ne quitte jamais l'infrastructure."""
+"""Second avis du LLM local (Ollama) sur une alerte de code. Le code ne quitte jamais l'infrastructure.
+
+Leçons tirées des mesures sur TriageX, appliquées ici :
+- un petit modèle répond mieux à UNE question factuelle qu'à un classement "vrai/faux positif" ;
+- la question dépend du type de règle (trajet d'une donnée utilisateur, ou présence d'un motif) ;
+- le prompt doit être neutre : dire "les scanners ont souvent raison" pousse le modèle à tout
+  confirmer, dire l'inverse le pousse à tout rejeter ;
+- le modèle explique AVANT de répondre (l'ordre des clés JSON guide son raisonnement) ;
+- sa confiance déclarée n'est pas fiable : elle n'est jamais utilisée pour cacher une alerte
+  (voir scoring.py).
+"""
 import json
 import logging
 import time
@@ -9,77 +19,73 @@ from .models import Finding
 
 log = logging.getLogger("triagex.llm")
 
-VERDICTS = {"true_positive", "false_positive", "needs_review"}
-
-# Un petit modèle confond facilement "la règle est violée" et "la règle est fausse".
-# On ne lui demande donc plus de classer l'alerte, mais de répondre à UNE question
-# factuelle et simple sur le code (oui / non), adaptée à chaque catégorie.
-SYSTEM_PROMPT = """You are a senior application security engineer who verifies findings from security scanners.
-Scanners are usually right: on real code, most findings are real.
-Only answer false if the code shown clearly proves the finding is wrong.
-Answer ONLY with a JSON object containing exactly these keys:
-"real_issue": true or false (your answer to the question),
+SYSTEM_PROMPT = """You are a senior application security engineer reviewing findings from automated security scanners.
+Scanners report both real problems and false alarms. Judge each finding only from the code shown, without assuming either outcome.
+Answer ONLY with a JSON object containing exactly these keys, in this order:
+"explanation": one or two short sentences in French describing what the code actually does,
+"real_issue": true or false, your answer to the question,
 "confidence": a number between 0 and 1,
-"explanation": one or two short sentences in French justifying your answer,
-"fix": one short sentence in French describing how to fix the issue."""
+"fix": one short sentence in French describing how to fix the issue, or an empty string if there is no issue."""
 
-INJECTION_MARKERS = ("injection", "sqli", "sql", "tainted", "xss", "ssrf", "path-traversal",
-                     "command", "subprocess", "deserializ", "eval", "exec")
+# Règles qui portent sur le trajet d'une donnée (source utilisateur -> opération dangereuse)
+INJECTION_MARKERS = ("injection", "sqli", "sql", "tainted", "xss", "ssrf", "traversal",
+                     "command", "subprocess", "deserializ", "pickle", "yaml", "eval", "exec",
+                     "redirect", "template")
 
 QUESTIONS = {
-    "sast_config": ("Question: does the code shown really contain the insecure pattern or "
-                    "configuration described by the rule and its message (for example "
-                    "debug=True, binding to 0.0.0.0, a weak algorithm, a disabled check)? "
-                    "Answer true if the pattern is present in the code."),
-    "sast": ("Question: in the code shown, does data controlled by the user (for example "
-             "request.args, request.form or request.data) reach the dangerous operation "
-             "described by the rule without proper validation or escaping? "
-             "String concatenation into a SQL query or a shell command is NOT safe."),
-    "secret": ("Question: is this a real credential written directly in the code "
-               "(not an empty value, a placeholder like 'changeme', or an environment variable)?"),
-    "dependency": ("Question: is this library used by the application? Answer true if it is "
-                   "imported in the code, listed in requirements.txt, or used by a framework the "
-                   "application uses (Flask uses Werkzeug, Jinja2, MarkupSafe and itsdangerous)."),
+    "sast": (
+        "Question: in the code shown, can text controlled by a user (for example request.args, "
+        "request.form, request.data or a URL parameter) reach the dangerous operation described "
+        "by the rule in a form an attacker can exploit? Check where the value comes from and "
+        "whether it is validated, escaped, converted to a safe type or replaced by a constant "
+        "before it is used."
+    ),
+    "sast_config": (
+        "Question: does the code shown contain the insecure pattern described by the rule AND is "
+        "it used in a security-sensitive way? For example a weak hash is a problem for passwords, "
+        "tokens or signatures, but not for a cache key or a file checksum; debug mode or binding "
+        "to 0.0.0.0 is a problem for a server that can be reached by others."
+    ),
+    "secret": (
+        "Question: is this a real credential written directly in the code (not an empty value, "
+        "an obvious placeholder, a test value, or a value read from the environment)?"
+    ),
 }
+
+VERDICT_FROM_ANSWER = {True: "true_positive", False: "false_positive"}
 
 
 def question_key(f: Finding) -> str:
-    """Les règles d'injection portent sur le trajet d'une donnée utilisateur ;
-    les règles d'audit (debug, host, cryptographie...) portent sur la présence d'un motif."""
-    if f.category != "sast":
-        return f.category if f.category in QUESTIONS else "sast_config"
+    if f.category == "secret":
+        return "secret"
     rule = f.rule_id.lower()
     return "sast" if any(marker in rule for marker in INJECTION_MARKERS) else "sast_config"
 
 
 def build_prompt(f: Finding, context: str) -> str:
     lines = [
-        f"Outil : {f.tool}",
-        f"Règle : {f.rule_id}",
-        f"Titre : {f.title}",
-        f"Sévérité déclarée : {f.severity}",
+        f"Tool: {f.tool}",
+        f"Rule: {f.rule_id}",
+        f"Title: {f.title}",
+        f"Declared severity: {f.severity}",
     ]
     if f.file:
-        lines.append(f"Fichier : {f.file} (ligne {f.line})")
-    if f.packages:
-        lines.append(f"Paquet : {', '.join(f.packages)} {f.installed_version or ''} "
-                     f"(corrigé en : {f.fixed_version or 'aucun correctif'})")
+        lines.append(f"File: {f.file} (line {f.line})")
     if f.description:
-        lines.append(f"Description : {f.description[:600]}")
-    lines.append("Code concerné :")
-    lines.append(context or "(non disponible)")
-    lines.append("")
-    lines.append(QUESTIONS[question_key(f)])
+        lines.append(f"Scanner message: {f.description[:500]}")
+    lines += ["Code:", context or "(not available)", "", QUESTIONS[question_key(f)]]
     return "\n".join(lines)
 
 
 def _to_bool(value):
     if isinstance(value, bool):
         return value
-    if isinstance(value, str) and value.strip().lower() in ("true", "yes", "oui"):
-        return True
-    if isinstance(value, str) and value.strip().lower() in ("false", "no", "non"):
-        return False
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("true", "yes", "oui"):
+            return True
+        if text in ("false", "no", "non"):
+            return False
     return None
 
 
@@ -99,12 +105,13 @@ def _chat(ollama_url: str, payload: dict, timeout: float, retries: int = 2) -> d
 
 
 def analyze(f: Finding, context: str, ollama_url: str, model: str, timeout: float = 300) -> None:
-    """Complète l'alerte avec le verdict de l'IA. En cas d'échec : needs_review."""
+    """Complète l'alerte avec le second avis de l'IA. En cas d'échec : needs_review."""
     payload = {
         "model": model,
         "stream": False,
         "format": "json",
-        "options": {"temperature": 0, "num_ctx": 2048},
+        # num_predict plafonne la longueur de la réponse : analyses plus rapides sur CPU
+        "options": {"temperature": 0, "num_ctx": 2048, "num_predict": 300},
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": build_prompt(f, context)},
@@ -112,14 +119,11 @@ def analyze(f: Finding, context: str, ollama_url: str, model: str, timeout: floa
     }
     try:
         data = _chat(ollama_url, payload, timeout)
-        real_issue = _to_bool(data.get("real_issue"))
-        verdict = {True: "true_positive", False: "false_positive"}.get(real_issue, "needs_review")
+        f.ai_verdict = VERDICT_FROM_ANSWER.get(_to_bool(data.get("real_issue")), "needs_review")
         try:
-            confidence = min(max(float(data.get("confidence", 0.5)), 0.0), 1.0)
+            f.ai_confidence = round(min(max(float(data.get("confidence", 0.5)), 0.0), 1.0), 2)
         except (TypeError, ValueError):
-            confidence = 0.5
-        f.ai_verdict = verdict
-        f.ai_confidence = round(confidence, 2)
+            f.ai_confidence = 0.5
         f.ai_explanation = str(data.get("explanation", ""))[:500]
         f.ai_fix = str(data.get("fix", ""))[:300]
     except Exception as exc:

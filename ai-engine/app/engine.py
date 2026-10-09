@@ -1,10 +1,10 @@
-"""Orchestration du triage : normaliser, dédupliquer, enrichir, analyser, prioriser, décider."""
+"""Orchestration du triage : normaliser, dédupliquer, enrichir, second avis de l'IA, prioriser, décider."""
 import logging
 import os
 import time
 from dataclasses import dataclass
 
-from .context import application_overview, code_context
+from .context import code_context
 from .enrich import fetch_epss, load_kev
 from .llm import analyze
 from .models import PRIORITY_ORDER
@@ -13,12 +13,17 @@ from .scoring import score_finding
 
 log = logging.getLogger("triagex.engine")
 
+# Seules les alertes sur le code de l'équipe passent par l'IA. Les contrôles Checkov sont des
+# règles déterministes, et les CVE des dépendances sont mieux classées par EPSS, KEV et la
+# disponibilité d'un correctif : mesuré sur TriageX, le petit modèle les rejetait toutes à tort.
+AI_CATEGORIES = ("secret", "sast")
+
 
 @dataclass
 class Settings:
     ollama_url: str = "http://127.0.0.1:11434"
     model: str = "qwen2.5-coder:3b"
-    max_llm_findings: int = 12
+    max_llm_findings: int = 20
     llm_timeout: float = 300
     data_dir: str = "/data"
 
@@ -47,20 +52,17 @@ def run_triage(reports: dict, sources: dict, settings: Settings) -> dict:
         if f.cve:
             f.epss = epss.get(f.cve)
             f.kev = f.cve in kev
-        score_finding(f)  # premier score, pour choisir quoi envoyer à l'IA
 
-    # 3. Analyse IA : le code d'abord, puis les dépendances les plus risquées.
-    # Les contrôles de configuration (Checkov) sont des règles déterministes et fiables :
-    # l'IA n'a pas à les remettre en cause, ils ne lui sont donc pas envoyés.
-    code = [f for f in findings if f.category in ("secret", "sast")]
-    deps = sorted((f for f in findings if f.category == "dependency"),
-                  key=lambda f: f.score, reverse=True)
-    candidates = (code + deps)[: settings.max_llm_findings]
-    overview = application_overview(sources)
+    # 3. Second avis de l'IA sur le code (les plus graves d'abord si le budget est atteint)
+    code = [f for f in findings if f.category in AI_CATEGORIES]
+    for f in code:
+        score_finding(f)
+    code.sort(key=lambda f: -f.score)
+    candidates = code[: settings.max_llm_findings]
     for index, f in enumerate(candidates, start=1):
         log.info("Analyse IA %d/%d : %s %s", index, len(candidates), f.id, f.rule_id)
-        context = code_context(sources, f.file, f.line) if f.file else overview
-        analyze(f, context, settings.ollama_url, settings.model, settings.llm_timeout)
+        analyze(f, code_context(sources, f.file, f.line), settings.ollama_url,
+                settings.model, settings.llm_timeout)
 
     # 4. Score final et tri
     for f in findings:
@@ -72,7 +74,6 @@ def run_triage(reports: dict, sources: dict, settings: Settings) -> dict:
     by_priority = {p: sum(1 for f in findings if f.priority == p) for p in PRIORITY_ORDER}
     raw_total = sum(raw_counts.values())
     actionable = by_priority["critique"] + by_priority["haute"]
-    analyzed = [f for f in candidates]
 
     summary = {
         "raw_counts": raw_counts,
@@ -81,9 +82,10 @@ def run_triage(reports: dict, sources: dict, settings: Settings) -> dict:
         "by_priority": by_priority,
         "actionable": actionable,
         "reduction_percent": round(100 * (1 - actionable / raw_total), 1) if raw_total else 0.0,
-        "ai_analyzed": len(analyzed),
-        "ai_false_positives": sum(1 for f in analyzed if f.ai_verdict == "false_positive"),
-        "ai_needs_review": sum(1 for f in analyzed if f.ai_verdict == "needs_review"),
+        "ai_analyzed": len(candidates),
+        "ai_confirmed": sum(1 for f in candidates if f.ai_verdict == "true_positive"),
+        "ai_contested": sum(1 for f in candidates if f.ai_verdict == "false_positive"),
+        "ai_undecided": sum(1 for f in candidates if f.ai_verdict == "needs_review"),
         "kev_loaded": bool(kev),
         "epss_scores": len(epss),
         "model": settings.model,

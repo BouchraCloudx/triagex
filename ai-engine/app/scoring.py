@@ -1,37 +1,28 @@
-"""Calcul du score de risque réel (0 à 100) et de la priorité de chaque alerte.
+"""Score de risque réel (0 à 100) et priorité de chaque alerte.
 
-Règles volontairement simples et explicables :
-- secrets : toujours critiques, l'IA ne peut jamais lever ce blocage ;
-- code (SAST, IaC) : sévérité + confiance de l'IA ; un faux positif confirmé est ignoré ;
-- vulnérabilités (CVE) : la sévérité théorique compte moins que la probabilité réelle
-  d'exploitation (EPSS), l'exploitation avérée (CISA KEV) et la confirmation par l'IA
-  que le code vulnérable est réellement utilisé par l'application.
+Principe final, tiré des mesures sur TriageX : le second avis d'un petit modèle local n'est pas
+assez fiable pour décider seul. L'IA ne cache donc JAMAIS une alerte. Elle peut :
+- renforcer une alerte de code qu'elle confirme ;
+- contester une alerte : celle-ci reste visible, avec son explication, et seules les alertes
+  de sévérité moyenne ou basse perdent un peu de priorité ;
+les vulnérabilités des dépendances et de l'image sont classées sans IA, avec des données
+fiables : sévérité, probabilité d'exploitation (EPSS), exploitation avérée (CISA KEV) et
+existence d'un correctif.
 """
 from .models import CODE_CATEGORIES, Finding
 
 SEVERITY_POINTS = {"CRITICAL": 40, "HIGH": 30, "MEDIUM": 15, "LOW": 5, "UNKNOWN": 5}
-VULN_SEVERITY_WEIGHT = 0.8   # la sévérité seule ne suffit pas à rendre une CVE prioritaire
+
+# Code (Semgrep, Checkov)
+AI_CONFIRMED_BONUS = 20      # l'IA confirme : jusqu'à +20 selon sa confiance
+NOT_CONFIRMED_BONUS = 10     # pas d'avis, avis indécis, ou faille grave contestée
+SEVERE = ("HIGH", "CRITICAL")
+
+# Vulnérabilités (Trivy)
+VULN_SEVERITY_WEIGHT = 0.8   # la sévérité théorique seule ne rend pas une CVE prioritaire
 EPSS_WEIGHT = 60             # EPSS de 0,5 = +30 points
-DIRECT_DEPENDENCY_BONUS = 5  # bibliothèque déclarée par l'équipe, qu'elle peut corriger elle-même
-AI_CONFIRMED_BONUS = 15      # l'IA confirme que le code vulnérable est utilisé
-# Garde-fou : l'IA ne peut écarter une alerte que si elle est presque certaine.
-# Dans le doute, l'alerte reste visible : cacher une vraie faille est pire qu'une alerte de trop.
-MIN_CONFIDENCE_TO_DISMISS = 0.9
-UNCERTAIN_CODE_BONUS = 10    # alerte de code non confirmée : on garde la sévérité du scanner
-
-
-# Mesuré sur TriageX : le petit modèle a écarté une vraie injection SQL avec une confiance
-# de 1.0. Sa confiance déclarée n'est donc pas fiable. Règle : l'IA n'écarte jamais seule
-# une faille de code grave, elle peut seulement l'expliquer et proposer un correctif.
-SEVERITIES_AI_CANNOT_DISMISS = ("HIGH", "CRITICAL")
-
-
-def ai_dismisses(f: Finding) -> bool:
-    if f.ai_verdict != "false_positive" or (f.ai_confidence or 0) < MIN_CONFIDENCE_TO_DISMISS:
-        return False
-    if f.category == "sast" and f.severity in SEVERITIES_AI_CANNOT_DISMISS:
-        return False
-    return True
+DIRECT_DEPENDENCY_BONUS = 10  # bibliothèque déclarée par l'équipe, qu'elle peut mettre à jour
+NO_FIX_CAP = 35              # sans correctif disponible : à surveiller, pas à traiter en urgence
 
 
 def priority_from_score(score: float) -> str:
@@ -44,48 +35,43 @@ def priority_from_score(score: float) -> str:
     return "basse"
 
 
-def score_finding(f: Finding) -> None:
-    f.notes = []
-    base = SEVERITY_POINTS.get(f.severity, 5)
+def _score_code(f: Finding, base: int) -> float:
+    if f.ai_verdict == "true_positive":
+        return base + AI_CONFIRMED_BONUS * (f.ai_confidence or 0)
+    if f.ai_verdict == "false_positive":
+        if f.severity in SEVERE:
+            f.notes.append("L'IA conteste cette alerte, mais une faille grave n'est jamais "
+                           "rétrogradée sur son seul avis : vérification humaine conseillée.")
+            return base + NOT_CONFIRMED_BONUS
+        f.notes.append("L'IA conteste cette alerte : elle reste visible, à vérifier.")
+        return base
+    return base + NOT_CONFIRMED_BONUS
 
-    if f.category == "secret":
-        f.score, f.priority = 100, "critique"
-        if f.ai_verdict == "false_positive":
-            f.notes.append("L'IA pense à un faux positif, mais un secret n'est jamais levé "
-                           "automatiquement : vérification humaine requise.")
-        return
 
-    if f.category in CODE_CATEGORIES:
-        if ai_dismisses(f):
-            f.score, f.priority = 0, "ignorée"
-            return
-        if f.ai_verdict == "true_positive":
-            bonus = 20 * (f.ai_confidence or 0)
-        else:
-            bonus = UNCERTAIN_CODE_BONUS
-            if f.ai_verdict == "false_positive":
-                f.notes.append("L'IA conteste cette alerte, mais une faille grave ou un doute "
-                               "ne suffisent pas à l'écarter : vérification humaine conseillée.")
-        f.score = round(base + bonus)
-        f.priority = priority_from_score(f.score)
-        return
-
-    # Vulnérabilités des dépendances et de l'image
+def _score_vulnerability(f: Finding, base: int) -> float:
     score = base * VULN_SEVERITY_WEIGHT + EPSS_WEIGHT * (f.epss or 0)
     if f.category == "dependency":
         score += DIRECT_DEPENDENCY_BONUS
-    if f.ai_verdict == "true_positive":
-        score += AI_CONFIRMED_BONUS * (f.ai_confidence or 0)
-        f.notes.append("L'IA confirme que le code vulnérable est utilisé par l'application.")
     if f.kev:
-        score = max(score, 60)  # exploitée activement par des attaquants : toujours critique
         f.notes.append("Exploitée activement (catalogue CISA KEV).")
+        return max(score, 60)  # exploitée par des attaquants : toujours critique
+    if not f.fixed_version:
+        f.notes.append("Aucun correctif disponible : à surveiller.")
+        return min(score, NO_FIX_CAP)
+    return score
+
+
+def score_finding(f: Finding) -> None:
+    f.notes = []
+    base = SEVERITY_POINTS.get(f.severity, 5)
+    if f.category == "secret":
+        score = 100  # un secret dans le code est toujours critique, quel que soit l'avis de l'IA
+        if f.ai_verdict == "false_positive":
+            f.notes.append("L'IA pense à une fausse alerte, mais un secret n'est jamais levé "
+                           "automatiquement : vérification humaine requise.")
+    elif f.category in CODE_CATEGORIES:
+        score = _score_code(f, base)
     else:
-        if not f.fixed_version:
-            score = min(score, 35)
-            f.notes.append("Aucun correctif disponible : à surveiller.")
-        if ai_dismisses(f):
-            score = min(score, 15)
-            f.notes.append("L'IA estime la faille non exploitable dans ce code.")
+        score = _score_vulnerability(f, base)
     f.score = round(min(score, 100))
     f.priority = priority_from_score(score)

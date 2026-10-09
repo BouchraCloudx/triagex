@@ -91,8 +91,8 @@ def print_summary(result: dict) -> None:
     for priority, count in s["by_priority"].items():
         print(f"   {priority:<12}: {count}")
     print("-" * 52)
-    print(f" Analysées par l'IA            : {s['ai_analyzed']} ({s['model']})")
-    print(f" Faux positifs identifiés      : {s['ai_false_positives']}")
+    print(f" Code analysé par l'IA         : {s['ai_analyzed']} alertes ({s['model']})")
+    print(f" Confirmées / contestées / ?   : {s['ai_confirmed']} / {s['ai_contested']} / {s['ai_undecided']}")
     print(f" Durée du triage               : {s['duration_seconds']} s")
     print(line)
     urgent = [f for f in result["findings"] if f["priority"] in ("critique", "haute")]

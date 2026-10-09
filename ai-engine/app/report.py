@@ -8,7 +8,7 @@ from jinja2 import Environment
 
 COLORS = {
     "critique": "#f5b7b1", "haute": "#f9d79f", "moyenne": "#fcf3cf",
-    "basse": "#d6eaf8", "ignorée": "#e5e7e9",
+    "basse": "#d6eaf8",
 }
 VERDICTS = {
     "true_positive": "Vrai positif", "false_positive": "Faux positif",
@@ -35,8 +35,8 @@ TEMPLATE = """<!DOCTYPE html>
 <tr><td>Alertes uniques après déduplication</td><td align="right">{{ s.unique_total }}</td></tr>
 <tr><td>Alertes à traiter (critiques + hautes)</td><td align="right"><b>{{ s.actionable }}</b></td></tr>
 <tr><td>Réduction du nombre d'alertes à traiter</td><td align="right"><b>{{ s.reduction_percent }} %</b></td></tr>
-<tr><td>Alertes analysées par l'IA ({{ s.model }})</td><td align="right">{{ s.ai_analyzed }}</td></tr>
-<tr><td>Faux positifs identifiés par l'IA</td><td align="right">{{ s.ai_false_positives }}</td></tr>
+<tr><td>Alertes de code analysées par l'IA ({{ s.model }})</td><td align="right">{{ s.ai_analyzed }}</td></tr>
+<tr><td>Confirmées / contestées / indécises</td><td align="right">{{ s.ai_confirmed }} / {{ s.ai_contested }} / {{ s.ai_undecided }}</td></tr>
 <tr><td>Durée du triage</td><td align="right">{{ s.duration_seconds }} s</td></tr>
 </table>
 
@@ -62,14 +62,16 @@ TEMPLATE = """<!DOCTYPE html>
 </table>
 {% else %}<p>Aucune alerte critique ou haute.</p>{% endif %}
 
-<h2>Alertes ignorées par l'IA (faux positifs)</h2>
-{% if ignored %}
+<h2>Alertes contestées par l'IA (à vérifier en priorité)</h2>
+{% if contested %}
 <table border="1" cellpadding="6" cellspacing="0" width="100%">
-<tr bgcolor="#eaecee"><th>ID</th><th>Alerte</th><th>Emplacement</th><th>Justification de l'IA</th></tr>
-{% for f in ignored %}<tr valign="top"><td>{{ f.id }}</td><td>{{ f.title }}<br><small>{{ f.rule_id }}</small></td>
+<tr bgcolor="#eaecee"><th>ID</th><th>Priorité</th><th>Alerte</th><th>Emplacement</th><th>Avis de l'IA</th></tr>
+{% for f in contested %}<tr valign="top" bgcolor="{{ colors[f.priority] }}"><td>{{ f.id }}</td><td>{{ f.priority }}</td>
+<td>{{ f.title }}<br><small>{{ f.rule_id }}</small></td>
 <td>{{ f.file }}:{{ f.line }}</td><td>{{ f.ai_explanation }}</td></tr>{% endfor %}
 </table>
-<p><i>Les faux positifs ne sont jamais supprimés : ils restent archivés avec leur justification, vérifiable à la main.</i></p>
+<p><i>L'IA ne cache jamais une alerte : celles qu'elle conteste restent dans le rapport, avec son avis,
+pour qu'un humain tranche. Une faille grave n'est jamais rétrogradée sur son seul avis.</i></p>
 {% else %}<p>Aucune.</p>{% endif %}
 
 <h2>Autres alertes (moyennes et basses)</h2>
@@ -98,7 +100,7 @@ def render_html(result: dict) -> str:
         gate=result["gate"],
         s=result["summary"],
         top=[f for f in findings if f["priority"] in ("critique", "haute")],
-        ignored=[f for f in findings if f["priority"] == "ignorée"],
+        contested=[f for f in findings if f.get("ai_verdict") == "false_positive"],
         low=low_all[:MAX_LOW_ROWS],
         low_hidden=max(len(low_all) - MAX_LOW_ROWS, 0),
         colors=COLORS,

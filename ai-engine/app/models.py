@@ -2,7 +2,7 @@
 from dataclasses import asdict, dataclass, field
 
 SEVERITY_ORDER = {"UNKNOWN": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
-PRIORITY_ORDER = {"critique": 0, "haute": 1, "moyenne": 2, "basse": 3, "ignorée": 4}
+PRIORITY_ORDER = {"critique": 0, "haute": 1, "moyenne": 2, "basse": 3}
 CODE_CATEGORIES = ("secret", "sast", "iac")
 VULN_CATEGORIES = ("dependency", "image-os")
 
