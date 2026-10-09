@@ -1,0 +1,39 @@
+---
+# Lance le conteneur de l'application de démonstration avec l'image app_image_to_run.
+# L'application est volontairement vulnérable : son conteneur est enfermé au maximum
+# (défense en profondeur), pour limiter les dégâts si une faille était exploitée.
+- name: "Lancer l'application ({{ app_image_to_run }})"
+  community.docker.docker_container:
+    name: "{{ app_name }}"
+    image: "{{ app_image_to_run }}"
+    state: started
+    recreate: true
+    restart_policy: unless-stopped
+    # Réseau Docker isolé : l'application n'atteint pas les services locaux d'ai-app
+    # (Ollama, moteur IA, Prometheus écoutent sur 127.0.0.1 de l'hôte)
+    networks:
+      - name: "{{ app_network }}"
+    networks_cli_compatible: true
+    published_ports:
+      - "{{ app_port }}:3000"
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opts:
+      - no-new-privileges:true
+    memory: 192m
+    pids_limit: 100
+    labels:
+      triagex.build: "{{ app_build | string }}"
+
+- name: Contrôle de santé de l'application
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_port }}/"
+    return_content: true
+  register: app_health
+  until: app_health.status == 200 and 'Shop API' in app_health.content
+  retries: 15
+  delay: 2

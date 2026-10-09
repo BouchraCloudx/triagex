@@ -21,7 +21,7 @@ class MetricsState:
     def __init__(self, data_dir: str):
         self.path = os.path.join(data_dir, "state.json")
         self.lock = threading.Lock()
-        self.state = {"triage": None, "compliance": None}
+        self.state = {"triage": None, "compliance": None, "deployment": None}
         try:
             with open(self.path, encoding="utf-8") as fh:
                 self.state.update(json.load(fh))
@@ -59,6 +59,19 @@ class MetricsState:
             }
             self._save()
 
+    def record_deployment(self, build, image: str, success: bool) -> None:
+        with self.lock:
+            previous = self.state.get("deployment") or {}
+            self.state["deployment"] = {
+                "build": build,
+                "image": image,
+                "success": success,
+                "timestamp": time.time(),
+                # La version en production ne change que si le déploiement a réussi
+                "live_build": build if success else previous.get("live_build"),
+            }
+            self._save()
+
     def render(self) -> str:
         lines = []
 
@@ -71,6 +84,7 @@ class MetricsState:
 
         with self.lock:
             triage, compliance = self.state["triage"], self.state["compliance"]
+            deployment = self.state.get("deployment")
 
         if triage:
             s = triage["summary"]
@@ -106,6 +120,16 @@ class MetricsState:
                    [({}, int(bool(compliance["passed"])))])
             metric("triagex_compliance_last_run_timestamp_seconds", "Date du dernier contrôle (epoch)",
                    [({}, round(compliance["timestamp"]))])
+
+        if deployment:
+            live = deployment.get("live_build")
+            if live is not None and str(live).isdigit():
+                metric("triagex_deployed_build", "Numéro du build actuellement en production",
+                       [({}, int(live))])
+            metric("triagex_last_deploy_success", "Dernier déploiement (1 = réussi, 0 = échec et retour arrière)",
+                   [({}, int(bool(deployment["success"])))])
+            metric("triagex_last_deploy_timestamp_seconds", "Date du dernier déploiement (epoch)",
+                   [({}, round(deployment["timestamp"]))])
 
         metric("triagex_engine_up", "Le moteur IA répond", [({}, 1)])
         return "\n".join(lines) + "\n"

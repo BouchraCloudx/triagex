@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 settings = Settings.from_env()
 metrics = MetricsState(settings.data_dir)
-app = FastAPI(title="TriageX AI Engine", version="1.1.0")
+app = FastAPI(title="TriageX AI Engine", version="1.2.0")
 
 
 class TriageRequest(BaseModel):
@@ -29,6 +29,12 @@ class ComplianceRequest(BaseModel):
     build: str | None = None
     drift_corrected: int = Field(ge=0)
     passed: bool
+
+
+class DeploymentRequest(BaseModel):
+    build: str
+    image: str
+    success: bool
 
 
 @app.get("/health")
@@ -62,6 +68,13 @@ def triage(request: TriageRequest) -> dict:
 def compliance(request: ComplianceRequest) -> dict:
     """Résultat du contrôle de conformité nocturne, publié par Jenkins."""
     metrics.record_compliance(request.build, request.drift_corrected, request.passed)
+    return {"status": "recorded"}
+
+
+@app.post("/deployment")
+def deployment(request: DeploymentRequest) -> dict:
+    """Résultat du déploiement Ansible, publié par Jenkins."""
+    metrics.record_deployment(request.build, request.image, request.success)
     return {"status": "recorded"}
 
 

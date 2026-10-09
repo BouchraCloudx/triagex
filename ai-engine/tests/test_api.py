@@ -58,3 +58,19 @@ def test_compliance_is_recorded(client):
 def test_compliance_rejects_invalid_payload(client):
     c, _, _ = client
     assert c.post("/compliance", json={"drift_corrected": -1, "passed": True}).status_code == 422
+
+
+def test_deployment_metrics_track_the_live_version(client):
+    c, _, _ = client
+    assert c.post("/deployment", json={"build": "20", "image": "triagex-demo:20", "success": True}).status_code == 200
+    body = c.get("/metrics").text
+    assert "triagex_deployed_build 20" in body and "triagex_last_deploy_success 1" in body
+    # Un déploiement raté (retour arrière) ne change pas la version en production
+    c.post("/deployment", json={"build": "21", "image": "triagex-demo:21", "success": False})
+    body = c.get("/metrics").text
+    assert "triagex_deployed_build 20" in body and "triagex_last_deploy_success 0" in body
+
+
+def test_no_deployment_metric_before_first_deploy(client):
+    c, _, _ = client
+    assert "triagex_deployed_build" not in c.get("/metrics").text

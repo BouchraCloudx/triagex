@@ -8,7 +8,7 @@ import tempfile
 import requests
 import yaml
 from flask import Flask, redirect, render_template_string, request, send_file
-from werkzeug.security import safe_join
+from werkzeug.utils import safe_join
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)

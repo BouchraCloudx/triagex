@@ -1,0 +1,107 @@
+---
+# Déploiement de l'application de démonstration, lancé par Jenkins UNIQUEMENT si le quality
+# gate est validé. Principe "on déploie ce qu'on a analysé" : Jenkins exporte l'image scannée
+# par Trivy, et Ansible la charge telle quelle sur ai-app, sans la reconstruire.
+#
+# Variables passées par Jenkins :
+#   app_image   : nom de l'image analysée (ex. triagex-demo:42)
+#   app_archive : chemin de l'image exportée (docker save) sur le serveur CI
+#   app_build   : numéro du build Jenkins
+- name: Déploiement de l'application de démonstration
+  hosts: ai_servers
+  become: true
+  gather_facts: false
+
+  vars:
+    app_name: demo-app
+    app_dir: /opt/demo-app
+    app_port: 3000
+    app_network: demo-app-net
+
+  tasks:
+    - name: Vérifier les paramètres transmis par Jenkins
+      ansible.builtin.assert:
+        that:
+          - app_image is defined and app_image | length > 0
+          - app_archive is defined and app_archive | length > 0
+          - app_build is defined
+        fail_msg: "Variables app_image, app_archive et app_build requises (passées par Jenkins avec -e)."
+        quiet: true
+
+    - name: Créer le dossier de l'application
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        mode: "0750"
+
+    - name: Lire la version actuellement en production
+      ansible.builtin.command: "cat {{ app_dir }}/current"
+      register: app_current
+      changed_when: false
+      failed_when: false
+
+    - name: Mémoriser la version précédente (pour un éventuel retour arrière)
+      ansible.builtin.set_fact:
+        app_previous_image: "{{ app_current.stdout | trim if app_current.rc == 0 else '' }}"
+
+    - name: Créer le réseau isolé de l'application
+      community.docker.docker_network:
+        name: "{{ app_network }}"
+        state: present
+
+    - name: Copier l'image analysée vers ai-app
+      ansible.builtin.copy:
+        src: "{{ app_archive }}"
+        dest: "{{ app_dir }}/image.tar"
+        mode: "0600"
+
+    - name: Charger l'image analysée dans Docker
+      community.docker.docker_image_load:
+        path: "{{ app_dir }}/image.tar"
+
+    - name: Déployer avec retour arrière automatique en cas d'échec
+      block:
+        - name: Lancer la nouvelle version
+          ansible.builtin.include_tasks: tasks/run-demo-app.yml
+          vars:
+            app_image_to_run: "{{ app_image }}"
+
+        - name: Enregistrer la version en production
+          ansible.builtin.copy:
+            content: "{{ app_image }}\n"
+            dest: "{{ app_dir }}/current"
+            mode: "0640"
+
+      rescue:
+        - name: Revenir à la version précédente
+          ansible.builtin.include_tasks: tasks/run-demo-app.yml
+          vars:
+            app_image_to_run: "{{ app_previous_image }}"
+          when: app_previous_image | length > 0
+
+        - name: Arrêter la version défaillante s'il n'existe pas de version précédente
+          community.docker.docker_container:
+            name: "{{ app_name }}"
+            state: stopped
+          when: app_previous_image | length == 0
+
+        - name: Signaler l'échec du déploiement
+          ansible.builtin.fail:
+            msg: >-
+              Le déploiement de {{ app_image }} a échoué au contrôle de santé.
+              {{ 'Retour automatique à ' ~ app_previous_image ~ '.' if app_previous_image | length > 0
+                 else 'Aucune version précédente disponible.' }}
+
+      always:
+        - name: Supprimer l'archive de l'image
+          ansible.builtin.file:
+            path: "{{ app_dir }}/image.tar"
+            state: absent
+
+    - name: Supprimer les anciennes images (garder la version actuelle et la précédente)
+      ansible.builtin.shell: |
+        {% raw %}docker images triagex-demo --format '{{.Repository}}:{{.Tag}}'{% endraw %} \
+          | grep -v -x -e "{{ app_image }}" -e "{{ app_previous_image | default('none', true) }}" \
+          | xargs -r docker rmi
+      register: app_cleanup
+      changed_when: app_cleanup.stdout | length > 0

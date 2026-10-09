@@ -14,13 +14,14 @@ pipeline {
         IMAGE         = "triagex-demo:${env.BUILD_NUMBER}"
         TRIVY_CACHE   = '/var/lib/jenkins/.cache/trivy'
         AI_ENGINE_URL = 'http://192.168.138.11:8000'
+        APP_URL       = 'http://192.168.138.11:3000'
     }
 
     stages {
         stage('Préparation') {
             steps {
                 sh '''
-                    rm -rf reports && mkdir -p reports
+                    rm -rf reports build && mkdir -p reports build
                     echo "Utilisateur : $(id -un) - Image : $IMAGE"
                 '''
             }
@@ -112,6 +113,45 @@ pipeline {
                 '''
             }
         }
+
+        // Atteint uniquement si le quality gate est validé : l'étape précédente échoue sinon.
+        stage('Déploiement (Ansible)') {
+            environment {
+                ANSIBLE_NOCOLOR = '1'
+            }
+            steps {
+                sh '''
+                    set +x
+                    # On déploie exactement l'image analysée par Trivy, sans la reconstruire
+                    docker save -o build/app-image.tar "$IMAGE"
+                    echo "Image analysée exportée : $IMAGE ($(du -h build/app-image.tar | cut -f1))"
+
+                    publish() {
+                        printf '{"build": "%s", "image": "%s", "success": %s}' "$BUILD_NUMBER" "$IMAGE" "$1" \
+                          > reports/deployment.json
+                        curl -fsS -m 10 -X POST -H "Content-Type: application/json" \
+                          --data @reports/deployment.json "$AI_ENGINE_URL/deployment" > /dev/null \
+                          || echo "Métriques de déploiement non publiées (moteur IA injoignable)"
+                    }
+
+                    cd ansible
+                    if ansible-playbook -i inventory-jenkins.ini deploy-app.yml \
+                         -e "app_image=$IMAGE" \
+                         -e "app_archive=$WORKSPACE/build/app-image.tar" \
+                         -e "app_build=$BUILD_NUMBER"; then
+                        cd ..
+                        publish true
+                        echo "Vérification depuis le serveur CI : $(curl -fsS -m 10 "$APP_URL/")"
+                        echo "DÉPLOYÉ : $IMAGE est en production sur $APP_URL"
+                    else
+                        cd ..
+                        publish false
+                        echo "ÉCHEC DU DÉPLOIEMENT : voir les messages Ansible ci-dessus."
+                        exit 1
+                    fi
+                '''
+            }
+        }
     }
 
     post {
@@ -125,7 +165,17 @@ pipeline {
                 alwaysLinkToLastBuild: true,
                 allowMissing: true
             ])
-            sh 'docker rmi "$IMAGE" || true'
+            sh 'rm -rf build; docker rmi "$IMAGE" || true'
+        }
+        success {
+            script {
+                currentBuild.description = "Déployé : ${env.IMAGE}"
+            }
+        }
+        failure {
+            script {
+                currentBuild.description = 'Non déployé'
+            }
         }
     }
 }
