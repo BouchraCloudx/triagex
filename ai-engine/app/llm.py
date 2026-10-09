@@ -1,6 +1,7 @@
 """Analyse d'une alerte par le LLM local (Ollama). Le code ne quitte jamais l'infrastructure."""
 import json
 import logging
+import time
 
 import httpx
 
@@ -42,6 +43,21 @@ def build_prompt(f: Finding, context: str) -> str:
     return "\n".join(lines)
 
 
+def _chat(ollama_url: str, payload: dict, timeout: float, retries: int = 2) -> dict:
+    """Appel à Ollama, avec nouvelles tentatives si le service redémarre."""
+    for attempt in range(retries + 1):
+        try:
+            response = httpx.post(f"{ollama_url}/api/chat", json=payload, timeout=timeout)
+            response.raise_for_status()
+            return json.loads(response.json()["message"]["content"])
+        except (httpx.ConnectError, httpx.RemoteProtocolError) as exc:
+            if attempt == retries:
+                raise
+            log.warning("Ollama indisponible (%s), nouvelle tentative dans 15 s", exc)
+            time.sleep(15)
+    raise RuntimeError("unreachable")
+
+
 def analyze(f: Finding, context: str, ollama_url: str, model: str, timeout: float = 300) -> None:
     """Complète l'alerte avec le verdict de l'IA. En cas d'échec : needs_review."""
     payload = {
@@ -55,9 +71,7 @@ def analyze(f: Finding, context: str, ollama_url: str, model: str, timeout: floa
         ],
     }
     try:
-        response = httpx.post(f"{ollama_url}/api/chat", json=payload, timeout=timeout)
-        response.raise_for_status()
-        data = json.loads(response.json()["message"]["content"])
+        data = _chat(ollama_url, payload, timeout)
         verdict = str(data.get("verdict", "")).strip().lower()
         if verdict not in VERDICTS:
             verdict = "needs_review"

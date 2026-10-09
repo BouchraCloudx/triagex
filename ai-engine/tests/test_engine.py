@@ -182,3 +182,34 @@ def test_llm_failure_falls_back_to_needs_review(monkeypatch):
     f = Finding(tool="semgrep", category="sast", rule_id="x", title="t", severity="HIGH")
     llm.analyze(f, "", "http://127.0.0.1:11434", "llama3.2:3b")
     assert f.ai_verdict == "needs_review"
+
+
+def test_dedupe_ignores_package_name_case():
+    reports = {"trivy_fs": {"Results": [{"Class": "lang-pkgs", "Vulnerabilities": [
+        {"VulnerabilityID": "CVE-2020-14343", "PkgName": "pyyaml", "Severity": "CRITICAL"}]}]},
+               "trivy_image": {"Results": [{"Class": "lang-pkgs", "Vulnerabilities": [
+        {"VulnerabilityID": "CVE-2020-14343", "PkgName": "PyYAML", "Severity": "CRITICAL"}]}]}}
+    findings, _ = normalize_all(reports)
+    assert len(dedupe(findings)) == 1
+
+
+def test_llm_retries_when_ollama_restarts(monkeypatch):
+    import httpx as real_httpx
+    from app import llm
+    calls = {"n": 0}
+
+    class Resp:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"message": {"content": '{"verdict": "true_positive", "confidence": 0.8}'}}
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise real_httpx.ConnectError("refused")
+        return Resp()
+    monkeypatch.setattr(llm.httpx, "post", flaky)
+    monkeypatch.setattr(llm.time, "sleep", lambda s: None)
+    f = Finding(tool="semgrep", category="sast", rule_id="x", title="t", severity="HIGH")
+    llm.analyze(f, "", "http://127.0.0.1:11434", "m")
+    assert f.ai_verdict == "true_positive" and calls["n"] == 2

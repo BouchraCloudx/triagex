@@ -116,7 +116,8 @@ def _dedup_key(f: Finding) -> tuple:
     if f.category in VULN_CATEGORIES:
         # Une même CVE dans plusieurs paquets système = un seul problème à corriger
         # Une même CVE de bibliothèque vue par le scan fs ET le scan image = un seul problème
-        target = f.packages[0] if f.category == "dependency" else "os"
+        # "PyYAML" (scan de l'image) et "pyyaml" (scan des dépendances) = la même bibliothèque
+        target = f.packages[0].lower().replace("_", "-") if f.category == "dependency" else "os"
         return ("vuln", f.category, f.rule_id, target)
     if f.category == "sast":
         # Plusieurs règles qui signalent la même ligne = une seule faille
