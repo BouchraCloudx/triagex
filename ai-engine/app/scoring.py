@@ -20,8 +20,18 @@ MIN_CONFIDENCE_TO_DISMISS = 0.9
 UNCERTAIN_CODE_BONUS = 10    # alerte de code non confirmée : on garde la sévérité du scanner
 
 
+# Mesuré sur TriageX : le petit modèle a écarté une vraie injection SQL avec une confiance
+# de 1.0. Sa confiance déclarée n'est donc pas fiable. Règle : l'IA n'écarte jamais seule
+# une faille de code grave, elle peut seulement l'expliquer et proposer un correctif.
+SEVERITIES_AI_CANNOT_DISMISS = ("HIGH", "CRITICAL")
+
+
 def ai_dismisses(f: Finding) -> bool:
-    return f.ai_verdict == "false_positive" and (f.ai_confidence or 0) >= MIN_CONFIDENCE_TO_DISMISS
+    if f.ai_verdict != "false_positive" or (f.ai_confidence or 0) < MIN_CONFIDENCE_TO_DISMISS:
+        return False
+    if f.category == "sast" and f.severity in SEVERITIES_AI_CANNOT_DISMISS:
+        return False
+    return True
 
 
 def priority_from_score(score: float) -> str:
@@ -54,8 +64,8 @@ def score_finding(f: Finding) -> None:
         else:
             bonus = UNCERTAIN_CODE_BONUS
             if f.ai_verdict == "false_positive":
-                f.notes.append("L'IA doute de cette alerte, mais pas assez pour l'écarter : "
-                               "vérification humaine conseillée.")
+                f.notes.append("L'IA conteste cette alerte, mais une faille grave ou un doute "
+                               "ne suffisent pas à l'écarter : vérification humaine conseillée.")
         f.score = round(base + bonus)
         f.priority = priority_from_score(f.score)
         return

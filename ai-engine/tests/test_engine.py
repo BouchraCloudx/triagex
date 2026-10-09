@@ -104,8 +104,8 @@ def test_secret_is_always_critical_even_if_ai_disagrees():
     assert f.notes
 
 
-def test_sast_false_positive_is_ignored():
-    f = Finding(tool="semgrep", category="sast", rule_id="x", title="t", severity="HIGH",
+def test_minor_sast_false_positive_is_ignored():
+    f = Finding(tool="semgrep", category="sast", rule_id="x", title="t", severity="MEDIUM",
                 ai_verdict="false_positive", ai_confidence=0.9)
     score_finding(f)
     assert f.priority == "ignorée"
@@ -254,3 +254,11 @@ def test_real_issue_false_maps_to_false_positive(monkeypatch):
     f = Finding(tool="semgrep", category="sast", rule_id="x", title="t", severity="HIGH")
     llm.analyze(f, "", "http://x", "m")
     assert f.ai_verdict == "false_positive" and f.ai_confidence == 0.95
+
+
+def test_severe_sast_finding_is_never_dismissed_even_with_full_confidence():
+    """Rejoue le build #6 : injection SQL classée faux positif avec une confiance de 1.0."""
+    f = Finding(tool="semgrep", category="sast", rule_id="tainted-sql-string", title="t",
+                severity="HIGH", ai_verdict="false_positive", ai_confidence=1.0)
+    score_finding(f)
+    assert f.priority == "haute"
