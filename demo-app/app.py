@@ -13,7 +13,6 @@ from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
-API_TOKEN = "Zx9fK2mQ7xLp4RtV8nZ3wB6yHcT1aE5u"
 
 DB_PATH = "/tmp/shop.db"
 FILES_DIR = "/srv/files"
