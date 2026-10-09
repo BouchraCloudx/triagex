@@ -5,7 +5,7 @@ allowed_tcp_ports: [22, 3000, 3001, 9090]
 
 ci_server_ip: 192.168.138.10
 
-ollama_model: "llama3.2:3b"
+ollama_model: "qwen2.5-coder:3b"
 
 ai_engine_dir: /opt/ai-engine
 ai_engine_data_dir: /var/lib/ai-engine
