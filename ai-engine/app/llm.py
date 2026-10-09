@@ -23,7 +23,14 @@ Answer ONLY with a JSON object containing exactly these keys:
 "explanation": one or two short sentences in French justifying your answer,
 "fix": one short sentence in French describing how to fix the issue."""
 
+INJECTION_MARKERS = ("injection", "sqli", "sql", "tainted", "xss", "ssrf", "path-traversal",
+                     "command", "subprocess", "deserializ", "eval", "exec")
+
 QUESTIONS = {
+    "sast_config": ("Question: does the code shown really contain the insecure pattern or "
+                    "configuration described by the rule and its message (for example "
+                    "debug=True, binding to 0.0.0.0, a weak algorithm, a disabled check)? "
+                    "Answer true if the pattern is present in the code."),
     "sast": ("Question: in the code shown, does data controlled by the user (for example "
              "request.args, request.form or request.data) reach the dangerous operation "
              "described by the rule without proper validation or escaping? "
@@ -34,6 +41,15 @@ QUESTIONS = {
                    "imported in the code, listed in requirements.txt, or used by a framework the "
                    "application uses (Flask uses Werkzeug, Jinja2, MarkupSafe and itsdangerous)."),
 }
+
+
+def question_key(f: Finding) -> str:
+    """Les règles d'injection portent sur le trajet d'une donnée utilisateur ;
+    les règles d'audit (debug, host, cryptographie...) portent sur la présence d'un motif."""
+    if f.category != "sast":
+        return f.category if f.category in QUESTIONS else "sast_config"
+    rule = f.rule_id.lower()
+    return "sast" if any(marker in rule for marker in INJECTION_MARKERS) else "sast_config"
 
 
 def build_prompt(f: Finding, context: str) -> str:
@@ -53,7 +69,7 @@ def build_prompt(f: Finding, context: str) -> str:
     lines.append("Code concerné :")
     lines.append(context or "(non disponible)")
     lines.append("")
-    lines.append(QUESTIONS.get(f.category, QUESTIONS["sast"]))
+    lines.append(QUESTIONS[question_key(f)])
     return "\n".join(lines)
 
 

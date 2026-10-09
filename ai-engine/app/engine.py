@@ -17,7 +17,7 @@ log = logging.getLogger("triagex.engine")
 @dataclass
 class Settings:
     ollama_url: str = "http://127.0.0.1:11434"
-    model: str = "llama3.2:3b"
+    model: str = "qwen2.5-coder:3b"
     max_llm_findings: int = 12
     llm_timeout: float = 300
     data_dir: str = "/data"

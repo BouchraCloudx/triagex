@@ -239,7 +239,7 @@ def test_iac_findings_are_never_sent_to_the_llm(monkeypatch, offline):
 
 def test_prompt_asks_a_factual_question():
     from app.llm import build_prompt
-    f = Finding(tool="semgrep", category="sast", rule_id="x", title="t", severity="HIGH")
+    f = Finding(tool="semgrep", category="sast", rule_id="python.lang.sqli", title="t", severity="HIGH")
     assert "request.args" in build_prompt(f, "code")
 
 
@@ -262,3 +262,14 @@ def test_severe_sast_finding_is_never_dismissed_even_with_full_confidence():
                 severity="HIGH", ai_verdict="false_positive", ai_confidence=1.0)
     score_finding(f)
     assert f.priority == "haute"
+
+
+def test_question_depends_on_rule_type():
+    from app.llm import build_prompt, question_key
+    injection = Finding(tool="semgrep", category="sast", severity="HIGH", title="t",
+                        rule_id="python.flask.security.injection.tainted-sql-string.tainted-sql-string")
+    config = Finding(tool="semgrep", category="sast", severity="MEDIUM", title="t",
+                     rule_id="python.flask.security.audit.app-run-param-config.avoid_app_run_with_bad_host")
+    assert question_key(injection) == "sast"
+    assert question_key(config) == "sast_config"
+    assert "debug=True" in build_prompt(config, "app.run(host='0.0.0.0', debug=True)")
