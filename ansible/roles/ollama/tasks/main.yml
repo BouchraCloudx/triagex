@@ -1,0 +1,29 @@
+---
+- name: Télécharger le script d'installation officiel d'Ollama
+  ansible.builtin.get_url:
+    url: https://ollama.com/install.sh
+    dest: /tmp/ollama-install.sh
+    mode: "0755"
+
+- name: Installer Ollama
+  ansible.builtin.command: sh /tmp/ollama-install.sh
+  args:
+    creates: /usr/local/bin/ollama
+
+- name: Démarrer Ollama au boot (écoute uniquement sur 127.0.0.1)
+  ansible.builtin.service:
+    name: ollama
+    state: started
+    enabled: true
+
+- name: Lister les modèles déjà présents
+  ansible.builtin.command: ollama list
+  register: ollama_models
+  changed_when: false
+  retries: 10
+  delay: 3
+  until: ollama_models.rc == 0
+
+- name: Télécharger le modèle d'IA (environ 2 Go, plusieurs minutes)
+  ansible.builtin.command: "ollama pull {{ ollama_model }}"
+  when: ollama_model not in ollama_models.stdout

@@ -13,3 +13,10 @@
   roles:
     - jenkins
     - security-tools
+
+- name: Serveur IA
+  hosts: ai_servers
+  become: true
+  roles:
+    - ollama
+    - ai-engine

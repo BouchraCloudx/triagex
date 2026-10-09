@@ -1,0 +1,81 @@
+---
+- name: Installer le SDK Docker pour Python
+  ansible.builtin.apt:
+    name: python3-docker
+    state: present
+    lock_timeout: 600
+
+- name: Copier le code du moteur IA
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../ai-engine/"
+    dest: "{{ ai_engine_dir }}/"
+    owner: root
+    group: root
+    mode: "u=rwX,go=rX"
+  register: ai_engine_code
+
+- name: Créer le dossier de données (cache du catalogue KEV)
+  ansible.builtin.file:
+    path: "{{ ai_engine_data_dir }}"
+    state: directory
+    owner: "{{ ai_engine_uid }}"
+    group: "{{ ai_engine_uid }}"
+    mode: "0750"
+
+- name: Construire l'image du moteur IA
+  community.docker.docker_image:
+    name: "{{ ai_engine_image_name }}"
+    tag: "{{ ai_engine_image_tag }}"
+    source: build
+    build:
+      path: "{{ ai_engine_dir }}"
+    force_source: "{{ ai_engine_code.changed }}"
+  register: ai_engine_image
+
+- name: Lancer le conteneur durci du moteur IA
+  community.docker.docker_container:
+    name: ai-engine
+    image: "{{ ai_engine_image_name }}:{{ ai_engine_image_tag }}"
+    state: started
+    recreate: "{{ ai_engine_image.changed }}"
+    restart_policy: unless-stopped
+    # Réseau de l'hôte : le conteneur joint Ollama sur 127.0.0.1, et UFW filtre le port
+    network_mode: host
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opts:
+      - no-new-privileges:true
+    volumes:
+      - "{{ ai_engine_data_dir }}:/data"
+    env:
+      OLLAMA_URL: "http://127.0.0.1:11434"
+      OLLAMA_MODEL: "{{ ollama_model }}"
+      MAX_LLM_FINDINGS: "{{ ai_engine_max_llm_findings | string }}"
+      DATA_DIR: /data
+      PORT: "{{ ai_engine_port | string }}"
+
+- name: Retirer l'ancienne règle qui ouvrait le port du moteur IA à tous
+  community.general.ufw:
+    rule: allow
+    to_port: "{{ ai_engine_port | string }}"
+    proto: tcp
+    delete: true
+
+- name: Autoriser uniquement le serveur CI à joindre le moteur IA
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ ci_server_ip }}"
+    to_port: "{{ ai_engine_port | string }}"
+    proto: tcp
+
+- name: Attendre que le moteur IA réponde
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ai_engine_port }}/health"
+    status_code: 200
+  register: ai_engine_health
+  until: ai_engine_health.status == 200
+  retries: 20
+  delay: 5

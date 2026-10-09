@@ -1,2 +1,16 @@
 ---
-allowed_tcp_ports: [22, 3000, 3001, 8000, 9090]
+# Le port 8000 (moteur IA) n'est plus ouvert à tous :
+# le rôle ai-engine l'autorise uniquement depuis le serveur CI.
+allowed_tcp_ports: [22, 3000, 3001, 9090]
+
+ci_server_ip: 192.168.138.10
+
+ollama_model: "llama3.2:3b"
+
+ai_engine_dir: /opt/ai-engine
+ai_engine_data_dir: /var/lib/ai-engine
+ai_engine_image_name: triagex/ai-engine
+ai_engine_image_tag: latest
+ai_engine_port: 8000
+ai_engine_uid: 10001
+ai_engine_max_llm_findings: 12

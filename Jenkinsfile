@@ -4,15 +4,16 @@ pipeline {
     options {
         timestamps()
         ansiColor('xterm')
-        timeout(time: 30, unit: 'MINUTES')
+        timeout(time: 60, unit: 'MINUTES')
         buildDiscarder(logRotator(numToKeepStr: '10'))
         disableConcurrentBuilds()
     }
 
     environment {
-        APP_DIR     = 'demo-app'
-        IMAGE       = "triagex-demo:${env.BUILD_NUMBER}"
-        TRIVY_CACHE = '/var/lib/jenkins/.cache/trivy'
+        APP_DIR       = 'demo-app'
+        IMAGE         = "triagex-demo:${env.BUILD_NUMBER}"
+        TRIVY_CACHE   = '/var/lib/jenkins/.cache/trivy'
+        AI_ENGINE_URL = 'http://192.168.138.11:8000'
     }
 
     stages {
@@ -89,39 +90,15 @@ pipeline {
             }
         }
 
-        stage('Résumé et quality gate') {
+        stage('Triage IA et quality gate') {
             steps {
                 sh '''
                     set +x
-                    count() { jq "$2" "reports/$1" 2>/dev/null || echo 0; }
-
-                    SECRETS=$(count gitleaks.json 'length')
-                    SAST=$(count semgrep.json '.results | length')
-                    SCA=$(count trivy-fs.json '[.Results[]?.Vulnerabilities[]?] | length')
-                    IAC=$(count checkov.json 'if type=="array" then map(.results.failed_checks | length) | add else .results.failed_checks | length end')
-                    IMG=$(count trivy-image.json '[.Results[]?.Vulnerabilities[]?] | length')
-                    TOTAL=$((SECRETS + SAST + SCA + IAC + IMG))
-
-                    echo "======================================"
-                    echo " RÉSUMÉ DES ALERTES BRUTES (avant IA)"
-                    echo "======================================"
-                    echo " Secrets (Gitleaks)      : $SECRETS"
-                    echo " Code (Semgrep)          : $SAST"
-                    echo " Dépendances (Trivy)     : $SCA"
-                    echo " Dockerfile (Checkov)    : $IAC"
-                    echo " Image Docker (Trivy)    : $IMG"
-                    echo "--------------------------------------"
-                    echo " TOTAL                   : $TOTAL"
-                    echo "======================================"
-
-                    printf '{"secrets": %s, "sast": %s, "sca": %s, "iac": %s, "image": %s, "total": %s}\n' \
-                      "$SECRETS" "$SAST" "$SCA" "$IAC" "$IMG" "$TOTAL" > reports/summary.json
-
-                    if [ "$SECRETS" -gt 0 ]; then
-                        echo "QUALITY GATE : ÉCHEC - $SECRETS secret(s) détecté(s) dans le code."
-                        exit 1
-                    fi
-                    echo "QUALITY GATE : OK"
+                    python3 scripts/triage_client.py \
+                      --url "$AI_ENGINE_URL" \
+                      --reports-dir reports \
+                      --source-dir "$APP_DIR" \
+                      --out-dir reports
                 '''
             }
         }
@@ -129,7 +106,15 @@ pipeline {
 
     post {
         always {
-            archiveArtifacts artifacts: 'reports/*.json', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'reports/*', allowEmptyArchive: true
+            publishHTML(target: [
+                reportDir: 'reports',
+                reportFiles: 'triage.html',
+                reportName: 'Rapport TriageX',
+                keepAll: true,
+                alwaysLinkToLastBuild: true,
+                allowMissing: true
+            ])
             sh 'docker rmi "$IMAGE" || true'
         }
     }
