@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from .context import application_overview, code_context
 from .enrich import fetch_epss, load_kev
 from .llm import analyze
-from .models import CODE_CATEGORIES, PRIORITY_ORDER
+from .models import PRIORITY_ORDER
 from .normalize import dedupe, normalize_all
 from .scoring import score_finding
 
@@ -49,8 +49,10 @@ def run_triage(reports: dict, sources: dict, settings: Settings) -> dict:
             f.kev = f.cve in kev
         score_finding(f)  # premier score, pour choisir quoi envoyer à l'IA
 
-    # 3. Analyse IA : le code d'abord, puis les dépendances les plus risquées
-    code = [f for f in findings if f.category in CODE_CATEGORIES]
+    # 3. Analyse IA : le code d'abord, puis les dépendances les plus risquées.
+    # Les contrôles de configuration (Checkov) sont des règles déterministes et fiables :
+    # l'IA n'a pas à les remettre en cause, ils ne lui sont donc pas envoyés.
+    code = [f for f in findings if f.category in ("secret", "sast")]
     deps = sorted((f for f in findings if f.category == "dependency"),
                   key=lambda f: f.score, reverse=True)
     candidates = (code + deps)[: settings.max_llm_findings]

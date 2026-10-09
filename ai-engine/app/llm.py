@@ -11,22 +11,34 @@ log = logging.getLogger("triagex.llm")
 
 VERDICTS = {"true_positive", "false_positive", "needs_review"}
 
-SYSTEM_PROMPT = """You are an application security expert helping a DevSecOps team triage scanner findings.
-For each finding, decide whether it is a real and exploitable issue in the code shown.
-- true_positive: the issue is real and reachable in this code.
-- false_positive: the scanner is wrong, or the vulnerable code is never used.
-- needs_review: you cannot decide from the information given.
+# Un petit modèle confond facilement "la règle est violée" et "la règle est fausse".
+# On ne lui demande donc plus de classer l'alerte, mais de répondre à UNE question
+# factuelle et simple sur le code (oui / non), adaptée à chaque catégorie.
+SYSTEM_PROMPT = """You are a senior application security engineer who verifies findings from security scanners.
+Scanners are usually right: on real code, most findings are real.
+Only answer false if the code shown clearly proves the finding is wrong.
 Answer ONLY with a JSON object containing exactly these keys:
-"verdict": "true_positive" | "false_positive" | "needs_review",
+"real_issue": true or false (your answer to the question),
 "confidence": a number between 0 and 1,
-"explanation": one or two short sentences in French explaining your decision,
+"explanation": one or two short sentences in French justifying your answer,
 "fix": one short sentence in French describing how to fix the issue."""
+
+QUESTIONS = {
+    "sast": ("Question: in the code shown, does data controlled by the user (for example "
+             "request.args, request.form or request.data) reach the dangerous operation "
+             "described by the rule without proper validation or escaping? "
+             "String concatenation into a SQL query or a shell command is NOT safe."),
+    "secret": ("Question: is this a real credential written directly in the code "
+               "(not an empty value, a placeholder like 'changeme', or an environment variable)?"),
+    "dependency": ("Question: is this library used by the application? Answer true if it is "
+                   "imported in the code, listed in requirements.txt, or used by a framework the "
+                   "application uses (Flask uses Werkzeug, Jinja2, MarkupSafe and itsdangerous)."),
+}
 
 
 def build_prompt(f: Finding, context: str) -> str:
     lines = [
         f"Outil : {f.tool}",
-        f"Catégorie : {f.category}",
         f"Règle : {f.rule_id}",
         f"Titre : {f.title}",
         f"Sévérité déclarée : {f.severity}",
@@ -40,7 +52,19 @@ def build_prompt(f: Finding, context: str) -> str:
         lines.append(f"Description : {f.description[:600]}")
     lines.append("Code concerné :")
     lines.append(context or "(non disponible)")
+    lines.append("")
+    lines.append(QUESTIONS.get(f.category, QUESTIONS["sast"]))
     return "\n".join(lines)
+
+
+def _to_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().lower() in ("true", "yes", "oui"):
+        return True
+    if isinstance(value, str) and value.strip().lower() in ("false", "no", "non"):
+        return False
+    return None
 
 
 def _chat(ollama_url: str, payload: dict, timeout: float, retries: int = 2) -> dict:
@@ -72,9 +96,8 @@ def analyze(f: Finding, context: str, ollama_url: str, model: str, timeout: floa
     }
     try:
         data = _chat(ollama_url, payload, timeout)
-        verdict = str(data.get("verdict", "")).strip().lower()
-        if verdict not in VERDICTS:
-            verdict = "needs_review"
+        real_issue = _to_bool(data.get("real_issue"))
+        verdict = {True: "true_positive", False: "false_positive"}.get(real_issue, "needs_review")
         try:
             confidence = min(max(float(data.get("confidence", 0.5)), 0.0), 1.0)
         except (TypeError, ValueError):

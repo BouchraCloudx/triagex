@@ -14,6 +14,14 @@ VULN_SEVERITY_WEIGHT = 0.8   # la sévérité seule ne suffit pas à rendre une 
 EPSS_WEIGHT = 60             # EPSS de 0,5 = +30 points
 DIRECT_DEPENDENCY_BONUS = 5  # bibliothèque déclarée par l'équipe, qu'elle peut corriger elle-même
 AI_CONFIRMED_BONUS = 15      # l'IA confirme que le code vulnérable est utilisé
+# Garde-fou : l'IA ne peut écarter une alerte que si elle est presque certaine.
+# Dans le doute, l'alerte reste visible : cacher une vraie faille est pire qu'une alerte de trop.
+MIN_CONFIDENCE_TO_DISMISS = 0.9
+UNCERTAIN_CODE_BONUS = 10    # alerte de code non confirmée : on garde la sévérité du scanner
+
+
+def ai_dismisses(f: Finding) -> bool:
+    return f.ai_verdict == "false_positive" and (f.ai_confidence or 0) >= MIN_CONFIDENCE_TO_DISMISS
 
 
 def priority_from_score(score: float) -> str:
@@ -38,10 +46,16 @@ def score_finding(f: Finding) -> None:
         return
 
     if f.category in CODE_CATEGORIES:
-        if f.ai_verdict == "false_positive":
+        if ai_dismisses(f):
             f.score, f.priority = 0, "ignorée"
             return
-        bonus = 20 * (f.ai_confidence or 0) if f.ai_verdict == "true_positive" else 0
+        if f.ai_verdict == "true_positive":
+            bonus = 20 * (f.ai_confidence or 0)
+        else:
+            bonus = UNCERTAIN_CODE_BONUS
+            if f.ai_verdict == "false_positive":
+                f.notes.append("L'IA doute de cette alerte, mais pas assez pour l'écarter : "
+                               "vérification humaine conseillée.")
         f.score = round(base + bonus)
         f.priority = priority_from_score(f.score)
         return
@@ -60,7 +74,7 @@ def score_finding(f: Finding) -> None:
         if not f.fixed_version:
             score = min(score, 35)
             f.notes.append("Aucun correctif disponible : à surveiller.")
-        if f.ai_verdict == "false_positive":
+        if ai_dismisses(f):
             score = min(score, 15)
             f.notes.append("L'IA estime la faille non exploitable dans ce code.")
     f.score = round(min(score, 100))

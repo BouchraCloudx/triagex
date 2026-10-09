@@ -201,7 +201,7 @@ def test_llm_retries_when_ollama_restarts(monkeypatch):
     class Resp:
         def raise_for_status(self): pass
         def json(self):
-            return {"message": {"content": '{"verdict": "true_positive", "confidence": 0.8}'}}
+            return {"message": {"content": '{"real_issue": true, "confidence": 0.8}'}}
 
     def flaky(*args, **kwargs):
         calls["n"] += 1
@@ -213,3 +213,44 @@ def test_llm_retries_when_ollama_restarts(monkeypatch):
     f = Finding(tool="semgrep", category="sast", rule_id="x", title="t", severity="HIGH")
     llm.analyze(f, "", "http://127.0.0.1:11434", "m")
     assert f.ai_verdict == "true_positive" and calls["n"] == 2
+
+
+def test_low_confidence_false_positive_is_not_dismissed():
+    """Rejoue le build #5 : l'IA classait l'injection SQL en faux positif avec 0.8 de confiance."""
+    f = Finding(tool="semgrep", category="sast", rule_id="tainted-sql-string", title="t",
+                severity="HIGH", ai_verdict="false_positive", ai_confidence=0.8)
+    score_finding(f)
+    assert f.priority == "haute"
+    assert f.notes
+
+
+def test_iac_findings_are_never_sent_to_the_llm(monkeypatch, offline):
+    seen = []
+
+    def spy(f, *args, **kwargs):
+        seen.append(f.category)
+        f.ai_verdict, f.ai_confidence = "false_positive", 0.99
+    monkeypatch.setattr(engine_module, "analyze", spy)
+    result = run_triage(REPORTS, SOURCES, offline)
+    assert "iac" not in seen
+    iac = [f for f in result["findings"] if f["category"] == "iac"]
+    assert iac and all(f["priority"] != "ignorée" for f in iac)
+
+
+def test_prompt_asks_a_factual_question():
+    from app.llm import build_prompt
+    f = Finding(tool="semgrep", category="sast", rule_id="x", title="t", severity="HIGH")
+    assert "request.args" in build_prompt(f, "code")
+
+
+def test_real_issue_false_maps_to_false_positive(monkeypatch):
+    from app import llm
+
+    class Resp:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"message": {"content": '{"real_issue": "false", "confidence": 0.95}'}}
+    monkeypatch.setattr(llm.httpx, "post", lambda *a, **k: Resp())
+    f = Finding(tool="semgrep", category="sast", rule_id="x", title="t", severity="HIGH")
+    llm.analyze(f, "", "http://x", "m")
+    assert f.ai_verdict == "false_positive" and f.ai_confidence == 0.95
