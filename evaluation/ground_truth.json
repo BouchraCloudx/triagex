@@ -1,0 +1,26 @@
+{
+  "_description": "Correction de l'examen du moteur IA. Clé = fonction de demo-app/app.py (<module> = code hors fonction). vuln = vraie faille, safe = piège : ressemble à une faille mais est sûr.",
+  "file": "demo-app/app.py",
+  "functions": {
+    "<module>":        {"expected": "vuln", "why": "Jeton d'API écrit en dur, et app.run(host='0.0.0.0', debug=True) expose le débogueur Werkzeug (exécution de code)."},
+    "search_user":     {"expected": "vuln", "why": "Injection SQL : le paramètre name est concaténé dans la requête."},
+    "ping":            {"expected": "vuln", "why": "Injection de commande : host est concaténé dans une commande shell."},
+    "load_config":     {"expected": "vuln", "why": "yaml.load sans chargeur sûr sur des données envoyées par l'utilisateur : exécution de code."},
+    "greet":           {"expected": "vuln", "why": "XSS : name est inséré sans échappement dans du HTML renvoyé."},
+    "preview":         {"expected": "vuln", "why": "Injection de template (SSTI) : title est concaténé dans le template Jinja2."},
+    "download":        {"expected": "vuln", "why": "Traversée de répertoire : name peut contenir ../ pour lire n'importe quel fichier."},
+    "go":              {"expected": "vuln", "why": "Redirection ouverte vers une URL fournie par l'utilisateur."},
+    "calc":            {"expected": "vuln", "why": "eval sur une entrée utilisateur : exécution de code arbitraire."},
+    "restore_session": {"expected": "vuln", "why": "pickle.loads sur des données envoyées par l'utilisateur : exécution de code."},
+    "register":        {"expected": "vuln", "why": "Mots de passe hachés avec MD5, sans sel : cassables en quelques secondes."},
+    "fetch":           {"expected": "vuln", "why": "SSRF vers une URL choisie par l'utilisateur, et vérification TLS désactivée."},
+    "export_report":   {"expected": "vuln", "why": "tempfile.mktemp : condition de course sur le nom du fichier temporaire."},
+    "get_order":       {"expected": "safe", "why": "Piège : la requête est formatée, mais order_id est converti en entier, donc aucune injection possible."},
+    "uptime":          {"expected": "safe", "why": "Piège : shell=True, mais la commande est une constante sans aucune entrée utilisateur."},
+    "about":           {"expected": "safe", "why": "Piège : render_template_string avec un template constant, la variable est passée proprement."},
+    "get_avatar":      {"expected": "safe", "why": "Piège : le nom de fichier est nettoyé par secure_filename puis safe_join."},
+    "etag":            {"expected": "safe", "why": "Piège : MD5 utilisé comme empreinte de cache d'un fichier, pas pour la sécurité."},
+    "index":           {"expected": "safe", "why": "Aucun risque."},
+    "db":              {"expected": "safe", "why": "Aucun risque."}
+  }
+}

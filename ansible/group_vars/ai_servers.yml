@@ -13,4 +13,4 @@ ai_engine_image_name: triagex/ai-engine
 ai_engine_image_tag: latest
 ai_engine_port: 8000
 ai_engine_uid: 10001
-ai_engine_max_llm_findings: 12
+ai_engine_max_llm_findings: 40

@@ -94,11 +94,21 @@ pipeline {
             steps {
                 sh '''
                     set +x
+                    rc=0
                     python3 scripts/triage_client.py \
                       --url "$AI_ENGINE_URL" \
                       --reports-dir reports \
                       --source-dir "$APP_DIR" \
-                      --out-dir reports
+                      --out-dir reports || rc=$?
+
+                    # Examen de l'IA : comparaison à la correction, sans influencer le quality gate
+                    python3 scripts/evaluate_ai.py \
+                      --triage reports/triage.json \
+                      --truth evaluation/ground_truth.json \
+                      --source "$APP_DIR/app.py" \
+                      --out reports/ai-evaluation.json || true
+
+                    exit $rc
                 '''
             }
         }
