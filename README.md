@@ -232,6 +232,4 @@ Adapter les adresses IP dans `inventory.ini`, `inventory-jenkins.ini` et `group_
 - **Versions des images** : les scanners utilisent le tag `latest` ; les fixer rendrait les résultats reproductibles.
 - **Jenkins** dispose de la clé SSH et du mot de passe Vault : c'est le composant le plus sensible de la chaîne.
 
-## Auteur
 
-Bouchra — [github.com/BouchraCloudx](https://github.com/BouchraCloudx)
