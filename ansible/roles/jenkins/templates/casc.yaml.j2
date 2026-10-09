@@ -48,3 +48,30 @@ jobs:
           }
         }
       }
+  - script: |
+      pipelineJob('triagex-compliance') {
+        description('Contrôle de conformité nocturne : détecte et corrige la dérive de configuration - géré par Ansible')
+        properties {
+          pipelineTriggers {
+            triggers {
+              cron {
+                spec('H 2 * * *')
+              }
+            }
+          }
+        }
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('{{ triagex_repo_url }}')
+                }
+                branch('*/main')
+              }
+            }
+            scriptPath('Jenkinsfile.compliance')
+            lightweight(true)
+          }
+        }
+      }

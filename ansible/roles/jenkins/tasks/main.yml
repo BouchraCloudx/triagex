@@ -6,6 +6,7 @@
       - openjdk-21-jre-headless
     state: present
     update_cache: true
+    lock_timeout: 600
 
 - name: Ajouter le dépôt officiel Jenkins LTS
   ansible.builtin.deb822_repository:
@@ -21,6 +22,7 @@
     name: jenkins
     state: present
     update_cache: true
+    lock_timeout: 600
 
 - name: Autoriser Jenkins à utiliser Docker
   ansible.builtin.user:
@@ -70,6 +72,52 @@
     group: jenkins
     mode: "0600"
   notify: Restart jenkins
+
+# --- Accès Ansible pour le contrôle de conformité nocturne ---------------------------------
+
+- name: Créer le dossier SSH de Jenkins
+  ansible.builtin.file:
+    path: "{{ jenkins_home }}/.ssh"
+    state: directory
+    owner: jenkins
+    group: jenkins
+    mode: "0700"
+
+- name: Générer la clé SSH de Jenkins (une seule fois)
+  ansible.builtin.command: >
+    ssh-keygen -t ed25519 -N "" -C "jenkins@cicd" -f {{ jenkins_home }}/.ssh/id_ed25519
+  args:
+    creates: "{{ jenkins_home }}/.ssh/id_ed25519"
+
+- name: Donner la clé SSH à l'utilisateur jenkins
+  ansible.builtin.file:
+    path: "{{ jenkins_home }}/.ssh/{{ item.name }}"
+    owner: jenkins
+    group: jenkins
+    mode: "{{ item.mode }}"
+  loop:
+    - { name: id_ed25519, mode: "0600" }
+    - { name: id_ed25519.pub, mode: "0644" }
+
+- name: Lire la clé publique de Jenkins
+  ansible.builtin.slurp:
+    src: "{{ jenkins_home }}/.ssh/id_ed25519.pub"
+  register: jenkins_pubkey_file
+
+- name: Mémoriser la clé publique de Jenkins
+  ansible.builtin.set_fact:
+    jenkins_ssh_pubkey: "{{ jenkins_pubkey_file.content | b64decode | trim }}"
+
+- name: Donner à Jenkins le mot de passe Vault (pour lire les variables chiffrées)
+  ansible.builtin.copy:
+    content: "{{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'HOME') + '/.vault_pass') }}\n"
+    dest: "{{ jenkins_home }}/.vault_pass"
+    owner: jenkins
+    group: jenkins
+    mode: "0600"
+  no_log: true
+
+# -------------------------------------------------------------------------------------------
 
 - name: Démarrer Jenkins au boot
   ansible.builtin.service:

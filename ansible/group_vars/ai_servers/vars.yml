@@ -1,0 +1,34 @@
+---
+# 3000 : application de démo, 3001 : Grafana.
+# Prometheus (9090) et node_exporter (9100) n'écoutent qu'en local sur cette machine,
+# et le moteur IA (8000) n'est accessible que depuis le serveur CI.
+allowed_tcp_ports: [22, 3000, 3001]
+
+ci_server_ip: 192.168.138.10
+
+firewall_source_rules:
+  - { port: 8000, from: 192.168.138.10 }
+
+ollama_model: "qwen2.5-coder:3b"
+
+ai_engine_dir: /opt/ai-engine
+ai_engine_data_dir: /var/lib/ai-engine
+ai_engine_image_name: triagex/ai-engine
+ai_engine_image_tag: latest
+ai_engine_port: 8000
+ai_engine_uid: 10001
+ai_engine_max_llm_findings: 20
+
+node_exporter_listen: "127.0.0.1:9100"
+
+# Supervision (versions figées pour des déploiements reproductibles)
+prometheus_image: prom/prometheus:v2.53.0
+grafana_image: grafana/grafana:11.1.0
+prometheus_dir: /opt/prometheus
+prometheus_data_dir: /var/lib/prometheus
+prometheus_retention: 15d
+grafana_dir: /opt/grafana
+grafana_data_dir: /var/lib/grafana
+grafana_port: 3001
+grafana_admin_user: admin
+grafana_admin_password: "{{ vault_grafana_admin_password }}"

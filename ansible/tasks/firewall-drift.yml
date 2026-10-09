@@ -1,0 +1,25 @@
+---
+# Calcule les règles de pare-feu non autorisées à partir de la sortie de "ufw show added"
+# (variable ufw_added_lines). Règles autorisées : allowed_tcp_ports et firewall_source_rules.
+# Sécurité : une règle qui concerne le port SSH (22) n'est jamais supprimée automatiquement.
+- name: Calculer les règles de pare-feu attendues
+  ansible.builtin.set_fact:
+    firewall_expected_rules: >-
+      {%- set rules = [] -%}
+      {%- for port in allowed_tcp_ports -%}
+        {%- set _ = rules.append('ufw allow ' ~ port ~ '/tcp') -%}
+      {%- endfor -%}
+      {%- for r in firewall_source_rules | default([]) -%}
+        {%- set _ = rules.append('ufw allow from ' ~ r.from ~ ' to any port ' ~ r.port ~ ' proto tcp') -%}
+      {%- endfor -%}
+      {{ rules }}
+
+- name: Repérer les règles de pare-feu non autorisées
+  ansible.builtin.set_fact:
+    firewall_unexpected_rules: >-
+      {{ ufw_added_lines
+         | map('regex_replace', '\s+', ' ') | map('trim')
+         | select('match', '^ufw ')
+         | reject('in', firewall_expected_rules)
+         | reject('search', '(^| )(22|22/tcp|port 22)( |$)')
+         | list }}

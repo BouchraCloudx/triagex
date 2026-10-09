@@ -1,0 +1,65 @@
+---
+# Contrôle de conformité, lancé chaque nuit par Jenkins (job triagex-compliance).
+# Le nombre de tâches "changed" de ce playbook = la dérive détectée et corrigée.
+# Un second passage doit donner changed=0 : c'est la preuve que tout est revenu conforme.
+
+- name: Conformité des serveurs TriageX
+  hosts: all
+  become: true
+
+  pre_tasks:
+    # Le pare-feu est nettoyé AVANT le durcissement : si une règle légitime était supprimée
+    # par erreur, le rôle hardening la recréerait aussitôt, et le second passage le signalerait.
+    - name: Lister les règles du pare-feu
+      ansible.builtin.command: ufw show added
+      register: ufw_added
+      changed_when: false
+      check_mode: false
+
+    - name: Analyser les règles du pare-feu
+      ansible.builtin.include_tasks: tasks/firewall-drift.yml
+      vars:
+        ufw_added_lines: "{{ ufw_added.stdout_lines }}"
+
+    - name: Supprimer les règles de pare-feu non autorisées
+      ansible.builtin.command: "ufw delete {{ item | regex_replace('^ufw ', '') }}"
+      loop: "{{ firewall_unexpected_rules }}"
+
+  roles:
+    - hardening
+
+  post_tasks:
+    - name: Appliquer les corrections en attente (redémarrage SSH, fail2ban)
+      ansible.builtin.meta: flush_handlers
+
+    - name: Lire la configuration SSH effective
+      ansible.builtin.command: sshd -T
+      register: sshd_effective
+      changed_when: false
+      check_mode: false
+
+    - name: Vérifier que SSH refuse les mots de passe et la connexion root
+      ansible.builtin.assert:
+        that:
+          - "'passwordauthentication no' in sshd_effective.stdout_lines"
+          - "'permitrootlogin no' in sshd_effective.stdout_lines"
+        fail_msg: "Configuration SSH non conforme malgré la correction : intervention humaine requise."
+        quiet: true
+
+    - name: Lire l'état du pare-feu
+      ansible.builtin.command: ufw status
+      register: ufw_status
+      changed_when: false
+      check_mode: false
+
+    - name: Vérifier que le pare-feu est actif
+      ansible.builtin.assert:
+        that: "'Status: active' in ufw_status.stdout"
+        fail_msg: "Pare-feu inactif malgré la correction : intervention humaine requise."
+        quiet: true
+
+    - name: Vérifier que fail2ban et auditd tournent
+      ansible.builtin.command: "systemctl is-active {{ item }}"
+      loop: [fail2ban, auditd]
+      changed_when: false
+      check_mode: false

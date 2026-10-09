@@ -14,9 +14,32 @@
     - jenkins
     - security-tools
 
+- name: Accès Ansible pour Jenkins (contrôle de conformité nocturne)
+  hosts: all
+  become: true
+  tasks:
+    - name: Autoriser la clé de Jenkins, uniquement depuis le serveur CI
+      ansible.posix.authorized_key:
+        user: devops
+        key: "{{ hostvars[groups['ci_servers'][0]]['jenkins_ssh_pubkey'] }}"
+        key_options: 'from="{{ hostvars[groups["ci_servers"][0]]["ansible_host"] | default("192.168.138.10") }}"'
+        state: present
+
 - name: Serveur IA
   hosts: ai_servers
   become: true
   roles:
     - ollama
     - ai-engine
+
+- name: Métriques système sur toutes les machines
+  hosts: all
+  become: true
+  roles:
+    - node-exporter
+
+- name: Supervision (Prometheus et Grafana)
+  hosts: ai_servers
+  become: true
+  roles:
+    - monitoring

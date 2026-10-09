@@ -1,0 +1,90 @@
+// Contrôle de conformité nocturne TriageX (job triagex-compliance, chaque nuit vers 2 h).
+// 1. Correction : Ansible supprime les règles de pare-feu non autorisées et réapplique le
+//    durcissement. Le nombre de tâches "changed" = la dérive détectée et corrigée.
+// 2. Vérification : un second passage doit donner changed=0.
+// Résultat : vert = aucune dérive ; orange (instable) = dérive corrigée ; rouge = échec.
+pipeline {
+    agent any
+
+    triggers {
+        cron('H 2 * * *')
+    }
+
+    options {
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        AI_ENGINE_URL = 'http://192.168.138.11:8000'
+        ANSIBLE_NOCOLOR = '1'
+        // N'afficher que les tâches qui ont dû corriger quelque chose : le log liste la dérive
+        ANSIBLE_DISPLAY_OK_HOSTS = 'false'
+        ANSIBLE_DISPLAY_SKIPPED_HOSTS = 'false'
+    }
+
+    stages {
+        stage('Préparation') {
+            steps {
+                sh '''
+                    rm -rf reports && mkdir -p reports
+                    ansible --version | head -1
+                    test -r "$HOME/.vault_pass" || { echo "Mot de passe Vault absent pour Jenkins : relancer site.yml"; exit 1; }
+                '''
+            }
+        }
+
+        stage('Correction de la dérive') {
+            steps {
+                sh '''
+                    cd ansible
+                    rc=0
+                    ansible-playbook -i inventory-jenkins.ini compliance.yml > ../reports/remediation.log 2>&1 || rc=$?
+                    cat ../reports/remediation.log
+                    awk '/ changed=/ { for (i = 1; i <= NF; i++) if ($i ~ /^changed=/) { split($i, a, "="); s += a[2] } } END { print s + 0 }' \
+                      ../reports/remediation.log > ../reports/drift.txt
+                    echo "Dérive détectée et corrigée : $(cat ../reports/drift.txt) modification(s)"
+                    exit $rc
+                '''
+            }
+        }
+
+        stage('Vérification') {
+            steps {
+                sh '''
+                    cd ansible
+                    rc=0
+                    ansible-playbook -i inventory-jenkins.ini compliance.yml > ../reports/verification.log 2>&1 || rc=$?
+                    cat ../reports/verification.log
+                    [ "$rc" -eq 0 ] || exit "$rc"
+                    remaining=$(awk '/ changed=/ { for (i = 1; i <= NF; i++) if ($i ~ /^changed=/) { split($i, a, "="); s += a[2] } } END { print s + 0 }' ../reports/verification.log)
+                    if [ "$remaining" -ne 0 ]; then
+                        echo "NON CONFORME : $remaining modification(s) encore nécessaire(s) après correction."
+                        exit 1
+                    fi
+                    echo "CONFORME : aucune modification nécessaire au second passage."
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                def drift = fileExists('reports/drift.txt') ? readFile('reports/drift.txt').trim() : '0'
+                def passed = currentBuild.currentResult == 'SUCCESS'
+                writeFile file: 'reports/compliance.json',
+                          text: "{\"build\": \"${env.BUILD_NUMBER}\", \"drift_corrected\": ${drift}, \"passed\": ${passed}}"
+                // Publie le résultat dans les métriques du moteur IA (affiché dans Grafana)
+                sh 'curl -fsS -m 10 -X POST -H "Content-Type: application/json" --data @reports/compliance.json "$AI_ENGINE_URL/compliance" || echo "Métriques non publiées (moteur IA injoignable)"'
+                currentBuild.description = passed ? "Dérive corrigée : ${drift}" : "Échec de la conformité"
+                if (passed && drift != '0') {
+                    unstable("Dérive de configuration détectée et corrigée : ${drift} modification(s). Voir remediation.log.")
+                }
+            }
+            archiveArtifacts artifacts: 'reports/*', allowEmptyArchive: true
+        }
+    }
+}

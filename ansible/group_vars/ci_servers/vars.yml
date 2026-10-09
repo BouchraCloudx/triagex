@@ -1,6 +1,11 @@
 ---
 allowed_tcp_ports: [22, 8080]
 
+# Règles de pare-feu réservées à une machine précise : node_exporter (métriques système)
+# n'est accessible que par Prometheus, qui tourne sur ai-app
+firewall_source_rules:
+  - { port: 9100, from: 192.168.138.11 }
+
 jenkins_url: "http://192.168.138.10:8080/"
 jenkins_home: /var/lib/jenkins
 jenkins_admin_user: admin
@@ -15,3 +20,6 @@ security_scanner_images:
   - semgrep/semgrep:latest
   - aquasec/trivy:latest
   - bridgecrew/checkov:latest
+
+# node_exporter écoute sur l'IP du réseau privé, pour être interrogé par Prometheus (ai-app)
+node_exporter_listen: "192.168.138.10:9100"

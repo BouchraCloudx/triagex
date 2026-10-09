@@ -6,6 +6,14 @@
     proto: tcp
   loop: "{{ allowed_tcp_ports }}"
 
+- name: Autoriser les ports réservés à une machine précise
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ item.from }}"
+    to_port: "{{ item.port | string }}"
+    proto: tcp
+  loop: "{{ firewall_source_rules | default([]) }}"
+
 - name: Refuser tout le trafic entrant par défaut
   community.general.ufw:
     direction: incoming

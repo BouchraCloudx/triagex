@@ -4,15 +4,18 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from .engine import Settings, run_triage
+from .metrics import MetricsState
 from .report import render_html
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s : %(message)s")
 
 settings = Settings.from_env()
-app = FastAPI(title="TriageX AI Engine", version="1.0.0")
+metrics = MetricsState(settings.data_dir)
+app = FastAPI(title="TriageX AI Engine", version="1.1.0")
 
 
 class TriageRequest(BaseModel):
@@ -20,6 +23,12 @@ class TriageRequest(BaseModel):
     build: str | None = None
     reports: dict[str, Any] = Field(default_factory=dict)
     sources: dict[str, str] = Field(default_factory=dict)
+
+
+class ComplianceRequest(BaseModel):
+    build: str | None = None
+    drift_corrected: int = Field(ge=0)
+    passed: bool
 
 
 @app.get("/health")
@@ -44,5 +53,18 @@ def triage(request: TriageRequest) -> dict:
     result = run_triage(request.reports, request.sources, settings)
     result["project"] = request.project
     result["build"] = request.build
+    metrics.record_triage(result)
     result["html"] = render_html(result)
     return result
+
+
+@app.post("/compliance")
+def compliance(request: ComplianceRequest) -> dict:
+    """Résultat du contrôle de conformité nocturne, publié par Jenkins."""
+    metrics.record_compliance(request.build, request.drift_corrected, request.passed)
+    return {"status": "recorded"}
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+def prometheus_metrics() -> str:
+    return metrics.render()

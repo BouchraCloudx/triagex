@@ -1,0 +1,22 @@
+# Géré par Ansible
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  # Métriques système des deux machines (node_exporter)
+  - job_name: node
+    static_configs:
+{% for host in groups['all'] %}
+      - targets: ["{{ hostvars[host]['node_exporter_listen'] }}"]
+        labels:
+          host: "{{ host }}"
+{% endfor %}
+
+  # Métriques de sécurité publiées par le moteur IA (triage et conformité)
+  - job_name: triagex
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["127.0.0.1:{{ ai_engine_port }}"]
+        labels:
+          host: "{{ inventory_hostname }}"

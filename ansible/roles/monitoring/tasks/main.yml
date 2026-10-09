@@ -1,0 +1,133 @@
+---
+# Prometheus (collecte) et Grafana (tableaux de bord), en réseau hôte :
+# Prometheus n'écoute que sur 127.0.0.1, Grafana sur le port 3001 avec authentification.
+
+- name: Retirer l'ancienne règle qui ouvrait Prometheus à tous
+  community.general.ufw:
+    rule: allow
+    to_port: "9090"
+    proto: tcp
+    delete: true
+
+- name: Créer les dossiers de Prometheus
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "0755"
+  loop:
+    - { path: "{{ prometheus_dir }}", owner: "root" }
+    - { path: "{{ prometheus_data_dir }}", owner: "65534" }
+
+- name: Déployer la configuration de Prometheus
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ prometheus_dir }}/prometheus.yml"
+    mode: "0644"
+  register: prometheus_config
+
+- name: Lancer Prometheus
+  community.docker.docker_container:
+    name: prometheus
+    image: "{{ prometheus_image }}"
+    state: started
+    restart: "{{ prometheus_config.changed }}"
+    restart_policy: unless-stopped
+    network_mode: host
+    user: "65534:65534"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opts:
+      - no-new-privileges:true
+    memory: 256m
+    volumes:
+      - "{{ prometheus_dir }}/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+      - "{{ prometheus_data_dir }}:/prometheus"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time={{ prometheus_retention }}"
+      - "--web.listen-address=127.0.0.1:9090"
+
+- name: Créer les dossiers de Grafana
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "0755"
+  loop:
+    - { path: "{{ grafana_dir }}/provisioning/datasources", owner: "root" }
+    - { path: "{{ grafana_dir }}/provisioning/dashboards", owner: "root" }
+    - { path: "{{ grafana_dir }}/dashboards", owner: "root" }
+    - { path: "{{ grafana_data_dir }}", owner: "472" }
+
+- name: Déclarer Prometheus comme source de données
+  ansible.builtin.copy:
+    src: datasource.yml
+    dest: "{{ grafana_dir }}/provisioning/datasources/prometheus.yml"
+    mode: "0644"
+  register: grafana_datasource
+
+- name: Déclarer le dossier des tableaux de bord
+  ansible.builtin.copy:
+    src: dashboards-provider.yml
+    dest: "{{ grafana_dir }}/provisioning/dashboards/triagex.yml"
+    mode: "0644"
+  register: grafana_provider
+
+- name: Déployer les tableaux de bord
+  ansible.builtin.copy:
+    src: "dashboards/{{ item }}"
+    dest: "{{ grafana_dir }}/dashboards/{{ item }}"
+    mode: "0644"
+  loop:
+    - triagex-securite.json
+    - triagex-serveurs.json
+
+- name: Lancer Grafana
+  community.docker.docker_container:
+    name: grafana
+    image: "{{ grafana_image }}"
+    state: started
+    restart: "{{ grafana_datasource.changed or grafana_provider.changed }}"
+    restart_policy: unless-stopped
+    network_mode: host
+    user: "472:472"
+    cap_drop:
+      - ALL
+    security_opts:
+      - no-new-privileges:true
+    memory: 256m
+    volumes:
+      - "{{ grafana_dir }}/provisioning:/etc/grafana/provisioning:ro"
+      - "{{ grafana_dir }}/dashboards:/var/lib/grafana-dashboards:ro"
+      - "{{ grafana_data_dir }}:/var/lib/grafana"
+    env:
+      GF_SERVER_HTTP_PORT: "{{ grafana_port | string }}"
+      GF_SECURITY_ADMIN_USER: "{{ grafana_admin_user }}"
+      GF_SECURITY_ADMIN_PASSWORD: "{{ grafana_admin_password }}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+  no_log: true
+
+- name: Attendre que Prometheus réponde
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:9090/-/ready"
+  register: prometheus_ready
+  until: prometheus_ready.status == 200
+  retries: 20
+  delay: 3
+
+- name: Attendre que Grafana réponde
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ grafana_port }}/api/health"
+  register: grafana_ready
+  until: grafana_ready.status == 200
+  retries: 30
+  delay: 5
