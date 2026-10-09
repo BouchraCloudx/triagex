@@ -12,7 +12,7 @@
   "timezone": "browser",
   "refresh": "30s",
   "time": {
-    "from": "now-7d",
+    "from": "now-24h",
     "to": "now"
   },
   "graphTooltip": 1,
@@ -68,6 +68,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
+          "noValue": "En attente",
           "color": {
             "mode": "thresholds"
           },
@@ -129,6 +130,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
+          "noValue": "En attente",
           "color": {
             "mode": "thresholds"
           },
@@ -190,6 +192,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
+          "noValue": "En attente",
           "color": {
             "mode": "thresholds"
           },
@@ -259,6 +262,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
+          "noValue": "En attente",
           "color": {
             "mode": "thresholds"
           },
@@ -329,6 +333,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
+          "noValue": "En attente",
           "color": {
             "mode": "thresholds"
           },
@@ -411,6 +416,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
+          "noValue": "En attente",
           "color": {
             "mode": "thresholds"
           },
@@ -505,7 +511,8 @@
             "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10,
-            "showPoints": "auto",
+            "showPoints": "always",
+            "pointSize": 6,
             "spanNulls": true,
             "lineInterpolation": "stepAfter",
             "stacking": {
@@ -515,7 +522,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "En attente de données"
         },
         "overrides": []
       },
@@ -564,7 +572,8 @@
             "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10,
-            "showPoints": "auto",
+            "showPoints": "always",
+            "pointSize": 6,
             "spanNulls": true,
             "lineInterpolation": "stepAfter",
             "stacking": {
@@ -574,7 +583,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "En attente de données"
         },
         "overrides": []
       },
@@ -758,6 +768,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
+          "noValue": "Jamais exécuté",
           "color": {
             "mode": "thresholds"
           },
@@ -840,6 +851,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
+          "noValue": "Jamais exécuté",
           "color": {
             "mode": "thresholds"
           },
@@ -905,6 +917,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "dateTimeFromNow",
+          "noValue": "Jamais exécuté",
           "color": {
             "mode": "thresholds"
           },
@@ -966,6 +979,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
+          "noValue": "En attente",
           "color": {
             "mode": "thresholds"
           },
@@ -1030,7 +1044,8 @@
             "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10,
-            "showPoints": "auto",
+            "showPoints": "always",
+            "pointSize": 6,
             "spanNulls": true,
             "lineInterpolation": "stepAfter",
             "stacking": {
@@ -1040,7 +1055,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "Lancer le job triagex-compliance pour alimenter ce graphique"
         },
         "overrides": []
       },

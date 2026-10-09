@@ -12,7 +12,7 @@
   "timezone": "browser",
   "refresh": "30s",
   "time": {
-    "from": "now-7d",
+    "from": "now-6h",
     "to": "now"
   },
   "graphTooltip": 1,
@@ -68,6 +68,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
+          "noValue": "En attente",
           "color": {
             "mode": "thresholds"
           },
@@ -150,6 +151,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
+          "noValue": "En attente",
           "color": {
             "mode": "thresholds"
           },
@@ -232,6 +234,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
+          "noValue": "En attente",
           "color": {
             "mode": "thresholds"
           },
@@ -314,6 +317,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
+          "noValue": "En attente",
           "color": {
             "mode": "thresholds"
           },
@@ -390,7 +394,8 @@
             "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10,
-            "showPoints": "auto",
+            "showPoints": "always",
+            "pointSize": 6,
             "spanNulls": true,
             "lineInterpolation": "stepAfter",
             "stacking": {
@@ -401,6 +406,7 @@
           "color": {
             "mode": "palette-classic"
           },
+          "noValue": "En attente de données",
           "max": 100,
           "min": 0
         },
@@ -451,7 +457,8 @@
             "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10,
-            "showPoints": "auto",
+            "showPoints": "always",
+            "pointSize": 6,
             "spanNulls": true,
             "lineInterpolation": "stepAfter",
             "stacking": {
@@ -462,6 +469,7 @@
           "color": {
             "mode": "palette-classic"
           },
+          "noValue": "En attente de données",
           "max": 100,
           "min": 0
         },
@@ -512,7 +520,8 @@
             "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10,
-            "showPoints": "auto",
+            "showPoints": "always",
+            "pointSize": 6,
             "spanNulls": true,
             "lineInterpolation": "stepAfter",
             "stacking": {
@@ -523,6 +532,7 @@
           "color": {
             "mode": "palette-classic"
           },
+          "noValue": "En attente de données",
           "max": 100,
           "min": 0
         },
@@ -573,7 +583,8 @@
             "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10,
-            "showPoints": "auto",
+            "showPoints": "always",
+            "pointSize": 6,
             "spanNulls": true,
             "lineInterpolation": "stepAfter",
             "stacking": {
@@ -583,7 +594,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "En attente de données"
         },
         "overrides": []
       },
